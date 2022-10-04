@@ -101,7 +101,7 @@ add_library(
   TritonCore::triton-core-serverstub ALIAS triton-core-serverstub
 )
 
-target_compile_features(triton-core-serverstub PRIVATE cxx_std_11)
+target_compile_features(triton-core-serverstub PRIVATE cxx_std_17)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   message("Using MSVC as compiler, default target on Windows 10. "
 		  "If the target system is not Windows 10, please update _WIN32_WINNT "
@@ -115,7 +115,7 @@ else()
   target_compile_options(
     triton-core-serverstub
     PRIVATE
-      -Wall -Wextra -Wno-unused-parameter -Werror
+      -Wall -Wextra -Wno-unused-parameter -Werror -L/usr/local/lib -lredis++ -lhiredis
   )
 endif()
 

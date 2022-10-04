@@ -178,8 +178,14 @@ InferenceServer::Init()
 
   if (response_cache_byte_size_ > 0) {
     std::unique_ptr<RequestResponseCache> local_response_cache;
-    status = RequestResponseCache::Create(
+    // TODO replace with true server config
+    std::string address = "127.0.0.1:6379";
+    std::string username = "default";
+    std::string password = "";
+    status = RequestResponseCache::Create(address, username, password, &local_response_cache);
+/*    status = RequestResponseCache::Create(
         response_cache_byte_size_, &local_response_cache);
+  */
     if (!status.IsOk()) {
       ready_state_ = ServerReadyState::SERVER_FAILED_TO_INITIALIZE;
       return status;
