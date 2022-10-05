@@ -25,7 +25,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 cmake_minimum_required(VERSION 3.18)
-
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
 project(tritoncore LANGUAGES C CXX)
 
 # Control building of shared library vs. only headers and stub. By
@@ -115,7 +116,7 @@ else()
   target_compile_options(
     triton-core-serverstub
     PRIVATE
-      -Wall -Wextra -Wno-unused-parameter -Werror -L/usr/local/lib -lredis++ -lhiredis
+      -Wall -Wextra -Wno-unused-parameter -Werror -std=c++17 -L/usr/local/lib -lredis++ -lhiredis
   )
 endif()
 
@@ -129,6 +130,7 @@ set_target_properties(
 #
 # Shared library implementing Triton Server API
 #
+
 if(NOT TRITON_CORE_HEADERS_ONLY)
   include(CMakeDependentOption)
 

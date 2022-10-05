@@ -89,8 +89,8 @@ if(${TRITON_ENABLE_GPU})
   add_executable(
     response_cache_test
     response_cache_test.cc
-    ../response_cache.cc
-    ../response_cache.h
+    ../redis_cache.cc
+    ../redis_cache.h
     ../status.cc
     ../status.h
     ../constants.h
@@ -114,6 +114,7 @@ if(${TRITON_ENABLE_GPU})
   target_include_directories(
     response_cache_test
     PRIVATE
+      /usr/local/lib
       ${CMAKE_CURRENT_SOURCE_DIR}/..
       ${CMAKE_CURRENT_SOURCE_DIR}/../../include
       ${GTEST_INCLUDE_DIRS}
@@ -129,6 +130,8 @@ if(${TRITON_ENABLE_GPU})
   )
 
   find_library(CNMEM_LIBRARY NAMES cnmem PATHS ${CNMEM_PATH}/lib)
+  find_library(REDISPP NAMES redis++ PATHS /usr/local/lib)
+  find_library(HREDIS NAMES hiredis PATHS /usr/local/lib)
 
   target_link_libraries(
     response_cache_test
@@ -136,9 +139,12 @@ if(${TRITON_ENABLE_GPU})
       triton-common-error        # from repo-common
       triton-common-logging      # from repo-common
       proto-library              # from repo-common
+      triton-common-model-config
       GTest::gtest
       GTest::gtest_main
       protobuf::libprotobuf
+      ${HREDIS}
+      ${REDISPP}
       ${CNMEM_LIBRARY}
       CUDA::cudart
   )
@@ -460,7 +466,7 @@ if(${TRITON_ENABLE_METRICS})
   )
 
   target_compile_definitions(
-    metrics_api_test 
+    metrics_api_test
     PRIVATE
       TRITON_ENABLE_LOGGING=1
       TRITON_ENABLE_METRICS=1

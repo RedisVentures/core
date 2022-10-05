@@ -131,7 +131,7 @@ set(
   pinned_memory_manager.cc
   rate_limiter.cc
   repo_agent.cc
-  response_cache.cc
+  redis_cache.cc
   scheduler_utils.cc
   sequence_batch_scheduler.cc
   sequence_state.cc
@@ -176,7 +176,7 @@ set(
   rate_limiter.h
   repo_agent.h
   response_allocator.h
-  response_cache.h
+  redis_cache.h
   scheduler.h
   scheduler_utils.h
   sequence_batch_scheduler.h
@@ -225,7 +225,7 @@ add_library(
   TritonCore::triton-core ALIAS triton-core
 )
 
-target_compile_features(triton-core PRIVATE cxx_std_11)
+target_compile_features(triton-core PRIVATE cxx_std_17)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   message("Using MSVC as compiler, default target on Windows 10. "
 		  "If the target system is not Windows 10, please update _WIN32_WINNT "
@@ -239,7 +239,8 @@ else()
   target_compile_options(
     triton-core
     PRIVATE
-      -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Werror
+     -fpermissive
+      #-Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Werror -fpermissive
   )
   set_target_properties(
     triton-core

@@ -24,9 +24,14 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "response_cache.h"
+#include <iterator>
+
+#include "redis_cache.h"
 #include "infer_stats.h"
 #include "triton/common/logging.h"
+#include "redis.cc"
+#include <sstream>
+#include <cstdio>
 
 namespace {
 
@@ -71,24 +76,33 @@ class ScopedTimer {
   ScopedTimerType type_;
 };
 
-std::string
+/*std::string
 PointerToString(void* ptr)
 {
   std::stringstream ss;
   ss << ptr;
   return ss.str();
 }
-
+*/
 }  // namespace
 
 namespace triton { namespace core {
 
 Status
 RequestResponseCache::Create(
-    uint64_t cache_size, std::unique_ptr<RequestResponseCache>* cache)
+    std::string address,
+    std::string username,
+    std::string password,
+    std::unique_ptr<RequestResponseCache>* cache)
 {
   try {
-    cache->reset(new RequestResponseCache(cache_size));
+    //cache = std::unique_ptr<RequestResponseCache>(
+    //  new RequestResponseCache(address, username, password));
+    //RequestResponseCache *rrc = new RequestResponseCache(address, username, password);
+    //cache = &std::unique_ptr<RequestResponseCache>(rrc);
+    //std::unique_ptr<RequestResponseCache> c = std::make_unique<RequestResponseCache>(address, username, password);
+    //cache = std::make_unique<RequestResponseCache>(address, username, password).get();
+    cache->reset(new RequestResponseCache(address, username, password));
   }
   catch (const std::exception& ex) {
     return Status(
@@ -99,53 +113,38 @@ RequestResponseCache::Create(
   return Status::Success;
 }
 
-RequestResponseCache::RequestResponseCache(const uint64_t size)
+RequestResponseCache::RequestResponseCache(std::string address, std::string username, std::string password)
 {
-  // Allocate buffer
-  buffer_ = malloc(size);
-  // Exit early if buffer allocation failed
-  if (buffer_ == nullptr) {
-    throw std::runtime_error("failed to allocate buffer");
+
+  try {
+    this->_client = init_client(address, username, password);
+  }
+  catch (const std::exception& ex) {
+    throw std::runtime_error(
+        "Failed to initialize Redis Response Cache: " + std::string(ex.what()));
   }
 
-  // Create cache as managed buffer
-  managed_buffer_ = boost::interprocess::managed_external_buffer(
-      boost::interprocess::create_only_t{}, buffer_, size);
-
-  LOG_INFO << "Response Cache is created at '" << PointerToString(buffer_)
-           << "' with size " << size;
+  LOG_INFO << "Redis Response Cache is located at:" << address;
 }
 
 RequestResponseCache::~RequestResponseCache()
 {
-  // Deallocate each chunk from managed buffer
-  for (auto& iter : cache_) {
-    auto& entry = iter.second;
-    for (auto& output : entry.outputs_) {
-      if (output.buffer_ != nullptr) {
-        managed_buffer_.deallocate(output.buffer_);
-      }
-    }
-  }
+  this->_client.reset();
+}
 
-  // Validate we freed all underlying memory managed by cache
-  if (!managed_buffer_.all_memory_deallocated()) {
-    // Destructors can't throw exceptions
-    LOG_ERROR << "failed to free managed cache memory";
-  }
-
-  // Free total cache buffer
-  if (buffer_ != nullptr) {
-    free(buffer_);
-  }
+// TODO change type here
+// figure out why test it segfaulting
+// because of compile error??
+// try to implement in separate file?
+bool RequestResponseCache::Exists(const uint64_t key) {
+  std::string string_key = std::to_string(key);
+  return this->_client->exists(string_key);
 }
 
 Status
 RequestResponseCache::Lookup(
     InferenceResponse* const response, InferenceRequest* const request)
 {
-  // Lock on cache lookup
-  std::lock_guard<std::recursive_mutex> lk(cache_mtx_);
 
   if (request == nullptr) {
     return Status(
@@ -160,15 +159,16 @@ RequestResponseCache::Lookup(
   if (!request->CacheKeyIsSet()) {
     RETURN_IF_ERROR(HashAndSet(request));
   }
-  const uint64_t key = request->CacheKey();
+  uint64_t key = request->CacheKey();
 
   num_lookups_++;
   LOG_VERBOSE(1) << request->LogRequest()
                  << "Looking up key [" + std::to_string(key) + "] in cache.";
 
   // Search cache for request hash key
-  auto iter = cache_.find(key);
-  if (iter == cache_.end()) {
+  bool found = true; //this->Exists(key); //TODO fix this.
+
+  if (!found) {
     num_misses_++;
     LOG_VERBOSE(1) << request->LogRequest()
                    << "MISS for key [" + std::to_string(key) + "] in cache.";
@@ -176,22 +176,18 @@ RequestResponseCache::Lookup(
         Status::Code::INTERNAL,
         request->LogRequest() + "key not found in cache");
   }
+  // clean this up
+  const std::string& key_v = std::to_string(key);
+  auto entry = cache_get(this->_client, key_v);
 
   // If find succeeds, it's a cache hit
   num_hits_++;
   LOG_VERBOSE(1) << request->LogRequest()
                  << "HIT for key [" + std::to_string(key) + "] in cache.";
 
-  // Populate passed-in "response" from cache entry
-  auto entry = iter->second;
   // Build InferenceResponse from CacheEntry
   RETURN_IF_ERROR(BuildInferenceResponse(entry, response));
 
-  // Update this key to front of LRU list
-  UpdateLRU(iter);
-  LOG_VERBOSE(1) << request->LogRequest()
-                 << "Using cached response for key [" + std::to_string(key) +
-                        "].";
   return Status::Success;
 }
 
@@ -200,7 +196,7 @@ RequestResponseCache::Insert(
     const InferenceResponse& response, InferenceRequest* const request)
 {
   // Lock on cache insertion
-  std::lock_guard<std::recursive_mutex> lk(cache_mtx_);
+  //std::lock_guard<std::recursive_mutex> lk(cache_mtx_);
 
   if (request == nullptr) {
     return Status(
@@ -215,11 +211,14 @@ RequestResponseCache::Insert(
   if (!request->CacheKeyIsSet()) {
     RETURN_IF_ERROR(HashAndSet(request));
   }
-  const uint64_t key = request->CacheKey();
+  uint64_t key = request->CacheKey();
 
   // Exit early if key already exists in cache
-  auto iter = cache_.find(key);
-  if (iter != cache_.end()) {
+  // Search cache for request hash key
+  bool found = this->Exists(key);
+  std::cout << std::to_string(found) << std::endl;
+
+  if (found) {
     return Status(
         Status::Code::ALREADY_EXISTS, request->LogRequest() + "key [" +
                                           std::to_string(key) +
@@ -227,102 +226,33 @@ RequestResponseCache::Insert(
   }
 
   // Construct cache entry from response
-  auto entry = CacheEntry();
-  RETURN_IF_ERROR(BuildCacheEntry(response, &entry));
+  auto cache_entry = RedisCacheEntry<std::string>();
+  //cache_entry.key = {reinterpret_cast<const char *>(&key), sizeof(uint64_t)};
+  cache_entry.key = std::to_string(key);
+
+  RETURN_IF_ERROR(BuildCacheEntry(response, &cache_entry));
+
+  cache_set(this->_client, cache_entry);
 
   // Insert entry into cache
   LOG_VERBOSE(1) << request->LogRequest()
                  << "Inserting key [" + std::to_string(key) + "] into cache.";
-  auto cache_pair = cache_.insert({key, entry});
-  // Exit early if cache insertion failed
-  if (!cache_pair.second) {
-    LOG_ERROR << request->LogRequest() << "Failed to insert key into map.";
-    return Status(
-        Status::Code::INTERNAL,
-        request->LogRequest() + "Cache insertion failed");
-  }
-  // Update LRU with new cache entry
-  auto cache_iter = cache_pair.first;
-  UpdateLRU(cache_iter);
+
 
   return Status::Success;
 }
 
-// LRU
-Status
-RequestResponseCache::Evict()
-{
-  // Lock on cache eviction
-  std::lock_guard<std::recursive_mutex> lk(cache_mtx_);
 
-  // Nothing to evict if cache is empty
-  if (NumEntries() == 0) {
-    return Status(Status::Code::INTERNAL, "Cache is empty, nothing to evict.");
-  }
-
-  // Least recently used key in back of LRU list
-  uint64_t lru_key = lru_.back();
-  LOG_VERBOSE(1) << "Evicting key [" + std::to_string(lru_key) +
-                        "] from cache.";
-
-  // Find cache entry for least recently used key
-  auto iter = cache_.find(lru_key);
-  // Error check if key isn't in cache, but this shouldn't happen in evict
-  // and probably indicates a bug
-  if (iter == cache_.end()) {
-    return Status(
-        Status::Code::INTERNAL,
-        "key [" + std::to_string(lru_key) +
-            "] not found in cache during eviction: this indicates a bug in the "
-            "code");
-  }
-  // Get size of cache entry being evicted to update available size
-  auto entry = iter->second;
-  // Free managed memory used in cache entry's outputs
-  for (auto& output : entry.outputs_) {
-    // Lock on buffer deallocation
-    std::lock_guard<std::recursive_mutex> lk(buffer_mtx_);
-    managed_buffer_.deallocate(output.buffer_);
-  }
-
-  // Remove LRU entry from cache
-  cache_.erase(lru_key);
-  // Remove LRU key from LRU list
-  lru_.pop_back();
-  // Increment number of evictions
-  num_evictions_++;
-
-  return Status::Success;
-}
-
-// Helpers
-void
-RequestResponseCache::UpdateLRU(
-    std::unordered_map<uint64_t, CacheEntry>::iterator& cache_iter)
-{
-  // Lock on cache update
-  std::lock_guard<std::recursive_mutex> lk(cache_mtx_);
-
-  const auto& key = cache_iter->first;
-  auto& cache_entry = cache_iter->second;
-  // Remove key from LRU list if it was already in there
-  auto lru_iter = std::find(lru_.begin(), lru_.end(), key);
-  if (lru_iter != lru_.end()) {
-    lru_.erase(lru_iter);
-  }
-  // Add key to front of LRU list since it's most recently used
-  lru_.push_front(key);
-  // Set CacheEntry LRU iterator to new LRU key location
-  cache_entry.lru_iter_ = lru_.begin();
-}
 
 Status
 RequestResponseCache::BuildCacheEntry(
-    const InferenceResponse& response, CacheEntry* const entry)
+    const InferenceResponse& response, RedisCacheEntry<std::string>* cache_entry)
 {
+
   // Build cache entry data from response outputs
+  int num_entries = 0;
   for (const auto& response_output : response.Outputs()) {
-    auto cache_output = Output();
+    HashEntry<std::string> cache_input;
 
     // Fetch output buffer details
     const void* response_buffer = nullptr;
@@ -347,120 +277,149 @@ RequestResponseCache::BuildCacheEntry(
       return Status(
           Status::Code::INTERNAL, "Response buffer from output was nullptr");
     }
+    void* buffer = malloc(response_byte_size);
+    // Copy data from response buffer to cache entry output buffer
+    // TODO: Handle other memory types
+    std::memcpy(buffer, response_buffer, response_byte_size);
 
-    // Lock on managed buffer references
-    {
-      std::lock_guard<std::recursive_mutex> lk(buffer_mtx_);
+    std::cout << response_buffer << std::endl;
+    std::cout << buffer << std::endl;
 
-      // Exit early if cache entry will be larger than available cache size
-      if (response_byte_size > managed_buffer_.get_size()) {
-        return Status(
-            Status::Code::INTERNAL,
-            "Cache entry is larger than total cache size");
+    const std::string& buf_str = "buffer";
+    const std::string& name_str = "name";
+    const std::string& dt_str = "datatype";
+    const std::string& shape_str = "shape";
+    const std::string& size_str = "size";
+
+    const std::string& byte_size = std::to_string(response_byte_size);
+    const std::string& buf_shape = triton::common::DimsListToString(response_output.Shape());
+    const std::string& buf = std::string((char*)buffer, response_byte_size);
+
+    const std::string& name = std::string(response_output.Name());
+    const std::string& dt = triton::common::DataTypeToProtocolString(response_output.DType());
+
+    cache_input.fields.insert({
+      {buf_str, buf},
+      {name_str, name},
+      {dt_str, dt},
+      {shape_str, buf_shape},
+      {size_str, byte_size}
+    });
+
+      // for debugging
+      for (auto &field: cache_input.fields) {
+        std::cout<< field.first << " = " << field.second << std::endl;
       }
-
-      // If cache doesn't have enough space, evict until enough space available
-      // NOTE: FreeBytes() doesn't account for allocator overhead so allocation
-      //       may fail even if response_byte_size is less than FreeBytes()
-      while (response_byte_size > FreeBytes()) {
-        LOG_VERBOSE(1) << "EVICT: Response larger than remaining available "
-                          "memory, attempting to evict from cache.";
-        RETURN_IF_ERROR(Evict());
-      }
-
-      // Attempt to allocate buffer until success or eviction from cache fails
-      while (cache_output.buffer_ == nullptr) {
-        // Allocate buffer for response output in cache entry
-        cache_output.buffer_ =
-            managed_buffer_.allocate(response_byte_size, std::nothrow_t{});
-        // Attempt to evict if allocation fails
-        if (cache_output.buffer_ == nullptr) {
-          LOG_VERBOSE(1) << "FAILED to allocate buffer in cache. Attempting to "
-                            "evict an entry.";
-          // Exit out if Eviction fails
-          RETURN_IF_ERROR(Evict());
-        }
-      }
-
-      // Copy data from response buffer to cache entry output buffer
-      // TODO: Handle other memory types
-      std::memcpy(cache_output.buffer_, response_buffer, response_byte_size);
-
-      // Set output metadata
-      cache_output.name_ = response_output.Name();
-      cache_output.dtype_ = response_output.DType();
-      cache_output.shape_ = response_output.Shape();
-      cache_output.buffer_size_ = static_cast<uint64_t>(response_byte_size);
-    }
 
     // Add each output to cache entry
-    entry->outputs_.push_back(cache_output);
+    cache_entry->outputs.emplace_back(cache_input);
+    num_entries += 1;
   }
+  cache_entry->num_entries = num_entries;
 
   return Status::Success;
 }
 
+std::vector<int64_t> get_dims(std::string dim_str) {
+
+    int start = dim_str.find_first_of("[");
+    int end = dim_str.find_last_of("]");
+    std::string dim_sub_str = dim_str.substr(start+1, end-1);
+
+    std::stringstream test(dim_sub_str);
+    std::string segment;
+    std::vector<int64_t> dim_list;
+    while(std::getline(test, segment, ','))
+    {
+      int64_t dim = std::stoi(segment);
+      dim_list.push_back(dim);
+    }
+    return dim_list;
+}
 
 Status
 RequestResponseCache::BuildInferenceResponse(
-    const CacheEntry& entry, InferenceResponse* const response)
+    const RedisCacheEntry<std::string>& entry, InferenceResponse* response)
 {
   if (response == nullptr) {
     return Status(Status::Code::INTERNAL, "invalid response ptr passed in");
   }
 
-  // Lock on cache references
-  {
-    std::lock_guard<std::recursive_mutex> lk(cache_mtx_);
 
-    // Inference response outputs should be empty so we can append to them
-    if (response->Outputs().size() != 0) {
-      return Status(
-          Status::Code::INTERNAL,
-          "InferenceResponse already contains some outputs");
-    }
-
-    for (auto& cache_output : entry.outputs_) {
-      InferenceResponse::Output* response_output = nullptr;
-      RETURN_IF_ERROR(response->AddOutput(
-          cache_output.name_, cache_output.dtype_, cache_output.shape_,
-          &response_output));
-
-      if (response_output == nullptr) {
-        return Status(
-            Status::Code::INTERNAL,
-            "InferenceResponse::Output pointer as nullptr");
-      }
-
-      TRITONSERVER_MemoryType memory_type = TRITONSERVER_MEMORY_CPU;
-      int64_t memory_type_id = 0;
-
-      // Allocate buffer for inference response
-      void* buffer;
-      RETURN_IF_ERROR(response_output->AllocateDataBuffer(
-          &buffer, cache_output.buffer_size_, &memory_type, &memory_type_id));
-
-      // TODO: Handle other memory types
-      if (memory_type != TRITONSERVER_MEMORY_CPU &&
-          memory_type != TRITONSERVER_MEMORY_CPU_PINNED) {
-        return Status(
-            Status::Code::INTERNAL,
-            "Only input buffers in CPU memory are allowed in cache currently");
-      }
-
-      if (buffer == nullptr) {
-        return Status(
-            Status::Code::INTERNAL, "failed to allocate buffer for output '" +
-                                        cache_output.name_ + "'");
-      }
-      // Copy cached output buffer to allocated response output buffer
-      std::memcpy(buffer, cache_output.buffer_, cache_output.buffer_size_);
-
-      // TODO: Add field to InferenceResponse to indicate this was from cache
-      // response.cached = true;
-    }
+  // Inference response outputs should be empty so we can append to them
+  if (response->Outputs().size() != 0) {
+    return Status(
+        Status::Code::INTERNAL,
+        "InferenceResponse already contains some outputs");
   }
 
+  for (HashEntry<std::string> output : entry.outputs) {
+
+
+    const std::string& name = output.fields["name"];
+    const std::string& dtype = output.fields["datatype"];
+    const std::string& bufsize = output.fields["size"];
+    const std::string& dim_str = output.fields["shape"];
+    const std::string& buf = output.fields["buffer"];
+    std::vector<int64_t> dims = get_dims(dim_str);
+
+    std::cout << "name: " << name << std::endl;
+    std::cout << "dtype: " << dtype << std::endl;
+    std::cout << "size: " << bufsize << std::endl;
+    std::cout << "dims: " << dim_str << std::endl;
+    std::cout << "buffer: " << buf << std::endl;
+
+    // get datatype
+    inference::DataType datatype = triton::common::ProtocolStringToDataType(dtype);
+
+    InferenceResponse::Output* response_output = nullptr;
+    RETURN_IF_ERROR(response->AddOutput(
+        name,
+        datatype,
+        dims,
+        &response_output));
+
+    if (response_output == nullptr) {
+      return Status(
+          Status::Code::INTERNAL,
+          "InferenceResponse::Output pointer as nullptr");
+    }
+
+    TRITONSERVER_MemoryType memory_type = TRITONSERVER_MEMORY_CPU;
+    int64_t memory_type_id = 0;
+
+    // Allocate buffer for inference response
+    void* buffer;
+
+    //cast buffer size to size_t
+    std::stringstream sstream(bufsize);
+    size_t buffer_size;
+    sstream >> buffer_size;
+
+    RETURN_IF_ERROR(response_output->AllocateDataBuffer(
+        &buffer, buffer_size, &memory_type, &memory_type_id));
+
+    // TODO: Handle other memory types
+    if (memory_type != TRITONSERVER_MEMORY_CPU &&
+        memory_type != TRITONSERVER_MEMORY_CPU_PINNED) {
+      return Status(
+          Status::Code::INTERNAL,
+          "Only input buffers in CPU memory are allowed in cache currently");
+    }
+
+    if (buffer == nullptr) {
+      return Status(
+          Status::Code::INTERNAL, "failed to allocate buffer for output '" +
+                                      output.fields["name"] + "'");
+    }
+    // Copy cached output buffer to allocated response output buffer
+    //size_t buf_dtype_size = triton::common::GetDataTypeByteSize(datatype);
+    //void* buffer_cast = reinterpret_cast<char*>(buf, buf_dtype_size);
+    std::memcpy(buffer, buf.data(), buffer_size);
+
+    // TODO: Add field to InferenceResponse to indicate this was from cache
+    // response.cached = true;
+  }
   return Status::Success;
 }
 
@@ -496,6 +455,41 @@ RequestResponseCache::HashInputBuffers(
 
   return Status::Success;
 }
+
+
+/*
+
+ tatus RequestReponseCache::SetJson(triton::common::TritonJson::Value& cache_entry) {
+
+  triton::common::TritonJson::WriteBuffer* buf = triton::common::TritonJson::WriteBuffer();
+  cache_entry->Write(buf);
+  std::string* contents = buf->Contents();
+
+  try {
+    this->_client.command<void>("JSON.SET", "doc", ".", &contents);
+  }
+  catch (sw::redis::TimeoutError &e) {
+      LOG_ERROR << request->LogRequest() << "Failed to insert key into cache.";
+      return Status(
+          Status::Code::INTERNAL,
+          request->LogRequest() + "Cache insertion failed");
+  }
+  catch (sw::redis::IoError &e) {
+      LOG_ERROR << request->LogRequest() << "Failed to insert key into cache.";
+    return Status(
+        Status::Code::INTERNAL,
+        request->LogRequest() + "Cache insertion failed");
+    }
+  catch (...) {
+    LOG_ERROR << request->LogRequest() << "Failed to insert key into cache.";
+    return Status(
+        Status::Code::INTERNAL,
+        request->LogRequest() + "Cache insertion failed");
+  }
+  return Status::Success
+}
+ */
+
 
 
 Status

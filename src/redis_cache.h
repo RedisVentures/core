@@ -36,10 +36,8 @@
 #include "status.h"
 
 #include <sw/redis++/redis++.h>
-#include "triton/common/triton_json.h"
 
 #include <boost/functional/hash.hpp>
-#include <boost/interprocess/managed_external_buffer.hpp>
 
 
 template <typename Tkv>
@@ -49,7 +47,7 @@ struct HashEntry {
 
 template <typename Tkv>
 struct RedisCacheEntry {
-  std::string_view key;
+  std::string key;
   int num_entries = 1;
   std::vector<HashEntry<Tkv>> outputs;
 };
@@ -86,7 +84,7 @@ class RequestResponseCache {
   // Returns number of items in cache
   size_t NumEntries()
   {
-    return 0; // TODO fix later
+    return (size_t)_client->dbsize();
   }
   // Returns number of items evicted in cache lifespan
   size_t NumEvictions()
@@ -146,7 +144,7 @@ class RequestResponseCache {
 
   // Build CacheEntry from InferenceResponse
   Status BuildCacheEntry(
-      const InferenceResponse& response, RedisCacheEntry<std::string_view>* cache_entry);
+      const InferenceResponse& response, RedisCacheEntry<std::string>* cache_entry);
   // Build InferenceResponse from CacheEntry
   Status BuildInferenceResponse(
       const RedisCacheEntry<std::string>& entry, InferenceResponse* response);
