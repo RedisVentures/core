@@ -116,7 +116,7 @@ else()
   target_compile_options(
     triton-core-serverstub
     PRIVATE
-      -Wall -Wextra -Wno-unused-parameter -Werror -std=c++17 -L/usr/local/lib -lredis++ -lhiredis
+      -Wall -Wextra -Wno-unused-parameter -Werror -std=c++17
   )
 endif()
 
@@ -141,6 +141,7 @@ if(NOT TRITON_CORE_HEADERS_ONLY)
   option(TRITON_ENABLE_TRACING "Include tracing support in server" OFF)
   option(TRITON_ENABLE_NVTX "Include NVTX support in server" OFF)
   option(TRITON_ENABLE_GPU "Enable GPU support in server" ON)
+  option(TRITON_ENABLE_REDIS_CACHE "Enable redis caching of inference responses" OFF)
   option(TRITON_ENABLE_MALI_GPU "Enable Arm Mali GPU support in server" OFF)
   set(TRITON_MIN_COMPUTE_CAPABILITY "6.0" CACHE STRING
       "The minimum CUDA compute capability supported by Triton" )
@@ -190,8 +191,8 @@ if(NOT TRITON_CORE_HEADERS_ONLY)
   include(FetchContent)
   FetchContent_Declare(
     repo-third-party
-    GIT_REPOSITORY https://github.com/triton-inference-server/third_party.git
-    GIT_TAG ${TRITON_THIRD_PARTY_REPO_TAG}
+    URL /home/spartee/dev/Redis/nvidia/triton/triton_third_party
+  #  GIT_TAG ${TRITON_THIRD_PARTY_REPO_TAG}
   )
   FetchContent_MakeAvailable(repo-third-party)
 
@@ -251,6 +252,10 @@ if(NOT TRITON_CORE_HEADERS_ONLY)
   if(${TRITON_ENABLE_GPU})
     set(TRITON_DEPENDS ${TRITON_DEPENDS} cnmem)
   endif() # TRITON_ENABLE_GPU
+  if(${TRITON_ENABLE_REDIS_CACHE})
+    set(TRITON_DEPENDS ${TRITON_DEPENDS} redis++)
+  endif() # TRITON_ENABLE_REDIS_CACHE
+
 
   ExternalProject_Add(triton-core
     PREFIX triton-core
@@ -279,6 +284,7 @@ if(NOT TRITON_CORE_HEADERS_ONLY)
       -Daws-c-common_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/aws-sdk-cpp/lib/aws-c-common/cmake
       -Daws-checksums_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/aws-sdk-cpp/lib/aws-checksums/cmake
       -DCNMEM_PATH:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/cnmem
+      -Dredis++_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/redis++/share/cmake/redis++
       -DTRITON_COMMON_REPO_TAG:STRING=${TRITON_COMMON_REPO_TAG}
       -DTRITON_EXTRA_LIB_PATHS:PATH=${TRITON_EXTRA_LIB_PATHS}
       -DTRITON_ENABLE_NVTX:BOOL=${TRITON_ENABLE_NVTX}

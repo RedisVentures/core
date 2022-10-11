@@ -27,7 +27,8 @@
 cmake_minimum_required(VERSION 3.18)
 
 project(libtritonserver LANGUAGES C CXX)
-
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
@@ -95,6 +96,16 @@ if(${TRITON_ENABLE_S3})
   find_package(AWSSDK REQUIRED COMPONENTS s3)
   message(STATUS "Using aws-sdk-cpp ${AWSSDK_VERSION}")
 endif()
+
+#
+# redis
+#
+if(${TRITON_ENABLE_REDIS_CACHE})
+  find_package(hiredis CONFIG REQUIRED)
+  find_package(redis++ CONFIG REQUIRED)
+  message(STATUS "Using redispp ${redis++_VERSION}")
+endif()
+
 
 configure_file(libtritonserver.ldscript libtritonserver.ldscript COPYONLY)
 
@@ -494,6 +505,20 @@ if(${TRITON_ENABLE_GPU})
       CUDA::cudart
   )
 endif() # TRITON_ENABLE_GPU
+
+if(${TRITON_ENABLE_REDIS_CACHE})
+find_library(HIREDIS_LIBRARY NAMES hiredis)
+  find_library(REDISPP_LIBRARY NAMES redis++)
+  target_link_libraries(
+    triton-core
+    PRIVATE
+      -lhiredis
+      -lredis++
+      ${HIREDIS_LIBRARY}
+      ${REDISPP_LIBRARY}
+  )
+endif() # TRITON_ENABLE_GPU
+
 
 if(${TRITON_ENABLE_METRICS_GPU})
   target_link_libraries(
