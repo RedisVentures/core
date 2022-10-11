@@ -10,6 +10,12 @@
 #include <sw/redis++/redis++.h>
 
 
+std::string prefix_key(const uint64_t key) {
+  //use hash_tag here
+  const std::string s_key = std::to_string(key);
+  std::string prefix = "{" + s_key + "}";
+  return prefix;
+}
 
 std::unique_ptr<sw::redis::RedisCluster> init_cluster_client(
     const std::string& address,
@@ -90,11 +96,7 @@ void cache_set(
     for (auto &output: cache_entry.outputs) {
       const std::string& key_v = prefix + "." + std::to_string(i);
 
-      // for debugging
-      for (const std::pair<std::string, std::string> &field: output.fields) {
-        std::cout << field.first << "  =  " << field.second << std::endl;
-        //redis->hset(prefix, field.first, field.second);
-      }
+      // set response in a redis hash field
       redis->hmset(key_v, output.fields.begin(), output.fields.end());
       i += 1;
     }

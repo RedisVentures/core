@@ -84,6 +84,7 @@ class RequestResponseCache {
   // Returns number of items in cache
   size_t NumEntries()
   {
+    // TODO consider how this will work with dual key design
     return (size_t)_client->dbsize();
   }
   // Returns number of items evicted in cache lifespan

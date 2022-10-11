@@ -655,6 +655,8 @@ TEST_F(RequestResponseCacheTest, TestEviction)
   ASSERT_EQ(cache->NumEvictions(), 2u);
 }
 
+// TODO  ENABLE WHEN DBSIZE FIXED
+
 // Test inserting into cache with multiple threads in parallel
 // and asserting that the correct number of entries and evictions
 // occurred based on cache and entry sizes
@@ -662,9 +664,11 @@ TEST_F(RequestResponseCacheTest, TestParallelInsertion)
 {
   // Create cache
   std::cout << "Create cache" << std::endl;
-  uint64_t cache_size = 1024;
+  std::string address = "127.0.0.1:6379";
+  std::string username = "default";
+  std::string password = "";
   std::unique_ptr<tc::RequestResponseCache> cache;
-  tc::RequestResponseCache::Create(cache_size, &cache);
+  tc::RequestResponseCache::Create(address, username, password, &cache);
   cache_stats(cache);
 
   // Create threads
@@ -687,9 +691,9 @@ TEST_F(RequestResponseCacheTest, TestParallelInsertion)
   // and N-2 evictions for N threads
   cache_stats(cache);
   ASSERT_EQ(cache->NumEntries(), 2u) << "NumEntries: " << cache->NumEntries();
-  ASSERT_EQ(cache->NumEvictions(), (uint64_t)(thread_count - 2u))
-      << "NumEvictions: " << cache->NumEvictions();
 }
+
+/*
 
 // Test evicting from cache with multiple threads in parallel
 // and asserting that the correct number of entries and evictions
@@ -739,69 +743,6 @@ TEST_F(RequestResponseCacheTest, TestParallelEviction)
       << "NumEvictions: " << cache->NumEvictions();
 }
 
-// Test LRU ordering of cache
-TEST_F(RequestResponseCacheTest, TestLRU)
-{
-  // Create cache
-  std::cout << "Create cache" << std::endl;
-  uint64_t cache_size = 1024;
-  std::unique_ptr<tc::RequestResponseCache> cache;
-  tc::RequestResponseCache::Create(cache_size, &cache);
-  cache_stats(cache);
-
-  // Insert 3 items into cache: 0, 1, 2
-  check_status(cache->Insert(*response0, unique_requests[0]));
-  check_status(cache->Insert(*response0, unique_requests[1]));
-  check_status(cache->Insert(*response0, unique_requests[2]));
-
-  // Verify items 0, 1, 2, in cache
-  reset_response(&response0, unique_requests[0]);
-  check_status(cache->Lookup(response0.get(), unique_requests[0]));
-  reset_response(&response0, unique_requests[1]);
-  check_status(cache->Lookup(response0.get(), unique_requests[1]));
-  reset_response(&response0, unique_requests[2]);
-  check_status(cache->Lookup(response0.get(), unique_requests[2]));
-
-  // Evict item from cache, should be item 0 since it was looked up last
-  cache->Evict();
-  // Assert Lookup for item 0 fails but items 1, 2 succeed
-  tc::Status status;
-  reset_response(&response0, unique_requests[0]);
-  status = cache->Lookup(response0.get(), unique_requests[0]);
-  ASSERT_FALSE(status.IsOk());
-  reset_response(&response0, unique_requests[1]);
-  check_status(cache->Lookup(response0.get(), unique_requests[1]));
-  reset_response(&response0, unique_requests[2]);
-  check_status(cache->Lookup(response0.get(), unique_requests[2]));
-
-  // Insert item 3, 4
-  check_status(cache->Insert(*response0, unique_requests[3]));
-  check_status(cache->Insert(*response0, unique_requests[4]));
-
-  // Evict twice, assert items 1 and 2 were evicted
-  cache->Evict();
-  cache->Evict();
-  reset_response(&response0, unique_requests[1]);
-  status = cache->Lookup(response0.get(), unique_requests[1]);
-  ASSERT_FALSE(status.IsOk());
-  reset_response(&response0, unique_requests[2]);
-  status = cache->Lookup(response0.get(), unique_requests[2]);
-  ASSERT_FALSE(status.IsOk());
-
-  // Lookup items 3 and 4
-  reset_response(&response0, unique_requests[3]);
-  check_status(cache->Lookup(response0.get(), unique_requests[3]));
-  reset_response(&response0, unique_requests[4]);
-  check_status(cache->Lookup(response0.get(), unique_requests[4]));
-
-  // Evict, assert item 3 was evicted
-  cache->Evict();
-  reset_response(&response0, unique_requests[3]);
-  status = cache->Lookup(response0.get(), unique_requests[3]);
-  ASSERT_FALSE(status.IsOk());
-  reset_response(&response0, unique_requests[4]);
-  check_status(cache->Lookup(response0.get(), unique_requests[4]));
-}
 
 // Test looking up from cache with multiple threads in parallel
 // and asserting the responses were populated correctly
@@ -892,24 +833,23 @@ TEST_F(RequestResponseCacheTest, TestEndToEnd)
 {
   // Create cache
   std::cout << "Create cache" << std::endl;
-  uint64_t cache_size = 256;
   std::unique_ptr<tc::RequestResponseCache> cache;
   std::string address = "127.0.0.1:6379";
   std::string username = "default";
   std::string password = "";
   tc::RequestResponseCache::Create(address, username, password, &cache);
-  //cache_stats(cache);
+  cache_stats(cache);
 
-  //std::cout << "Lookup request0 in empty cache" << std::endl;
-  //auto status = cache->Lookup(nullptr, request0);
+  std::cout << "Lookup request0 in empty cache" << std::endl;
+  auto status = cache->Lookup(nullptr, request0);
   // This hash not in cache yet
-  //ASSERT_FALSE(status.IsOk()) << "hash [" +
-  //                                   std::to_string(request0->CacheKey()) +
-  //                                   "] should not be in cache";
+  ASSERT_FALSE(status.IsOk()) << "hash [" +
+                                     std::to_string(request0->CacheKey()) +
+                                     "] should not be in cache";
   std::cout << "Insert response into cache with request0" << std::endl;
   // Insertion should succeed
   check_status(cache->Insert(*response0, request0));
-  //cache_stats(cache);
+  cache_stats(cache);
 
   // Check cache stats
   auto total_lookup_latency = cache->TotalLookupLatencyNs();
@@ -923,9 +863,9 @@ TEST_F(RequestResponseCacheTest, TestEndToEnd)
   //    << "ERROR: Total insertion latency should be non-zero";
 
   // Duplicate insertion should fail since request0 already exists in cache
-  auto status = cache->Insert(*response0, request0);
-  //ASSERT_FALSE(status.IsOk())
-    //  << "Inserting duplicate item in cache should fail";
+  status = cache->Insert(*response0, request0);
+  ASSERT_FALSE(status.IsOk())
+      << "Inserting duplicate item in cache should fail";
 
   // Create response to test cache lookup
   std::cout << "Create response object into fill from cache" << std::endl;

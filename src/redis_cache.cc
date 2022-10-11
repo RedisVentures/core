@@ -76,14 +76,7 @@ class ScopedTimer {
   ScopedTimerType type_;
 };
 
-/*std::string
-PointerToString(void* ptr)
-{
-  std::stringstream ss;
-  ss << ptr;
-  return ss.str();
-}
-*/
+
 }  // namespace
 
 namespace triton { namespace core {
@@ -96,12 +89,6 @@ RequestResponseCache::Create(
     std::unique_ptr<RequestResponseCache>* cache)
 {
   try {
-    //cache = std::unique_ptr<RequestResponseCache>(
-    //  new RequestResponseCache(address, username, password));
-    //RequestResponseCache *rrc = new RequestResponseCache(address, username, password);
-    //cache = &std::unique_ptr<RequestResponseCache>(rrc);
-    //std::unique_ptr<RequestResponseCache> c = std::make_unique<RequestResponseCache>(address, username, password);
-    //cache = std::make_unique<RequestResponseCache>(address, username, password).get();
     cache->reset(new RequestResponseCache(address, username, password));
   }
   catch (const std::exception& ex) {
@@ -132,13 +119,9 @@ RequestResponseCache::~RequestResponseCache()
   this->_client.reset();
 }
 
-// TODO change type here
-// figure out why test it segfaulting
-// because of compile error??
-// try to implement in separate file?
 bool RequestResponseCache::Exists(const uint64_t key) {
-  std::string string_key = std::to_string(key);
-  return this->_client->exists(string_key);
+  std::string prefixed_key = prefix_key(key);
+  return this->_client->exists(prefixed_key);
 }
 
 Status
@@ -166,7 +149,7 @@ RequestResponseCache::Lookup(
                  << "Looking up key [" + std::to_string(key) + "] in cache.";
 
   // Search cache for request hash key
-  bool found = true; //this->Exists(key); //TODO fix this.
+  bool found = this->Exists(key); //TODO fix this.
 
   if (!found) {
     num_misses_++;
@@ -216,7 +199,6 @@ RequestResponseCache::Insert(
   // Exit early if key already exists in cache
   // Search cache for request hash key
   bool found = this->Exists(key);
-  std::cout << std::to_string(found) << std::endl;
 
   if (found) {
     return Status(
@@ -279,11 +261,7 @@ RequestResponseCache::BuildCacheEntry(
     }
     void* buffer = malloc(response_byte_size);
     // Copy data from response buffer to cache entry output buffer
-    // TODO: Handle other memory types
     std::memcpy(buffer, response_buffer, response_byte_size);
-
-    std::cout << response_buffer << std::endl;
-    std::cout << buffer << std::endl;
 
     const std::string& buf_str = "buffer";
     const std::string& name_str = "name";
@@ -307,9 +285,9 @@ RequestResponseCache::BuildCacheEntry(
     });
 
       // for debugging
-      for (auto &field: cache_input.fields) {
-        std::cout<< field.first << " = " << field.second << std::endl;
-      }
+      //for (auto &field: cache_input.fields) {
+      //  std::cout<< field.first << " = " << field.second << std::endl;
+      //}
 
     // Add each output to cache entry
     cache_entry->outputs.emplace_back(cache_input);
@@ -363,12 +341,6 @@ RequestResponseCache::BuildInferenceResponse(
     const std::string& buf = output.fields["buffer"];
     std::vector<int64_t> dims = get_dims(dim_str);
 
-    std::cout << "name: " << name << std::endl;
-    std::cout << "dtype: " << dtype << std::endl;
-    std::cout << "size: " << bufsize << std::endl;
-    std::cout << "dims: " << dim_str << std::endl;
-    std::cout << "buffer: " << buf << std::endl;
-
     // get datatype
     inference::DataType datatype = triton::common::ProtocolStringToDataType(dtype);
 
@@ -410,11 +382,8 @@ RequestResponseCache::BuildInferenceResponse(
     if (buffer == nullptr) {
       return Status(
           Status::Code::INTERNAL, "failed to allocate buffer for output '" +
-                                      output.fields["name"] + "'");
+                                      name + "'");
     }
-    // Copy cached output buffer to allocated response output buffer
-    //size_t buf_dtype_size = triton::common::GetDataTypeByteSize(datatype);
-    //void* buffer_cast = reinterpret_cast<char*>(buf, buf_dtype_size);
     std::memcpy(buffer, buf.data(), buffer_size);
 
     // TODO: Add field to InferenceResponse to indicate this was from cache
@@ -456,39 +425,6 @@ RequestResponseCache::HashInputBuffers(
   return Status::Success;
 }
 
-
-/*
-
- tatus RequestReponseCache::SetJson(triton::common::TritonJson::Value& cache_entry) {
-
-  triton::common::TritonJson::WriteBuffer* buf = triton::common::TritonJson::WriteBuffer();
-  cache_entry->Write(buf);
-  std::string* contents = buf->Contents();
-
-  try {
-    this->_client.command<void>("JSON.SET", "doc", ".", &contents);
-  }
-  catch (sw::redis::TimeoutError &e) {
-      LOG_ERROR << request->LogRequest() << "Failed to insert key into cache.";
-      return Status(
-          Status::Code::INTERNAL,
-          request->LogRequest() + "Cache insertion failed");
-  }
-  catch (sw::redis::IoError &e) {
-      LOG_ERROR << request->LogRequest() << "Failed to insert key into cache.";
-    return Status(
-        Status::Code::INTERNAL,
-        request->LogRequest() + "Cache insertion failed");
-    }
-  catch (...) {
-    LOG_ERROR << request->LogRequest() << "Failed to insert key into cache.";
-    return Status(
-        Status::Code::INTERNAL,
-        request->LogRequest() + "Cache insertion failed");
-  }
-  return Status::Success
-}
- */
 
 
 
