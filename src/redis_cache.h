@@ -28,16 +28,15 @@
 
 #include <list>
 #include <string>
+#include <iostream>
+#include <string_view>
 #include <unordered_map>
 
-#include "infer_request.h"
-#include "infer_response.h"
-#include "model.h"
-#include "status.h"
-
+#include "triton/common/model_config.h"
+#include "triton/common/logging.h"
+#include "infer_stats.h"
+#include "response_cache.h"
 #include <sw/redis++/redis++.h>
-
-#include <boost/functional/hash.hpp>
 
 
 template <typename Tkv>
@@ -53,72 +52,47 @@ struct RedisCacheEntry {
 };
 
 
+
 namespace triton { namespace core {
 
 
-class RequestResponseCache {
+class RedisResponseCache : public RequestResponseCache {
  public:
-  ~RequestResponseCache();
+  ~RedisResponseCache();
+
   // Create the request/response cache object
   static Status Create(std::string address, std::string username, std::string password, std::unique_ptr<RequestResponseCache>* cache);
 
-  // Hash inference request for cache access and store it in "request" object.
-  // This will also be called internally in Lookup/Insert if the request hasn't
-  // already stored it's hash. It is up to the user to update the hash in the
-  // request if modifying any hashed fields of the request object after storing.
-  // Return Status object indicating success or failure.
-  Status HashAndSet(InferenceRequest* const request);
-
-  // Lookup 'request' hash in cache and return the inference response in
-  // 'response' on cache hit or nullptr on cache miss
-  // Return Status object indicating success or failure.
   Status Lookup(
       InferenceResponse* const response, InferenceRequest* const request);
-  // Insert response into cache, evict entries to make space if necessary
-  // Return Status object indicating success or failure.
+
   Status Insert(
       const InferenceResponse& response, InferenceRequest* const request);
 
   bool Exists(const uint64_t key);
 
+  // dummy method to statisfy compiler
+  // there is bound to be a better way to do this.
+  Status Evict() {
+    Status status = Status(Status::Code::SUCCESS);
+    return status;
+  }
+
   // Returns number of items in cache
   size_t NumEntries()
   {
     // TODO consider how this will work with dual key design
+    // will currently return 2x number of keys by design
     return (size_t)_client->dbsize();
   }
   // Returns number of items evicted in cache lifespan
   size_t NumEvictions()
   {
-    return num_evictions_;
-  }
-  // Returns number of lookups in cache lifespan, should sum to hits + misses
-  size_t NumLookups()
-  {
-    return num_lookups_;
-  }
-  // Returns number of cache hits in cache lifespan
-  size_t NumHits()
-  {
-    return num_hits_;
-  }
-  // Returns number of cache hits in cache lifespan
-  size_t NumMisses()
-  {
-    return num_misses_;
-  }
-  // Returns the total lookup latency (nanoseconds) of all lookups in cache
-  // lifespan
-  uint64_t TotalLookupLatencyNs()
-  {
-    return total_lookup_latency_ns_;
+    // TODO get from Redis instead
+    return RequestResponseCache::NumEvictions();
   }
 
-  uint64_t TotalInsertionLatencyNs()
-  {
-    return total_insertion_latency_ns_;
-  }
-
+  // TODO Are these needed for Redis? It's easy to get the values
   // Returns total number of bytes allocated for cache
   size_t TotalBytes()
   {
@@ -134,14 +108,14 @@ class RequestResponseCache {
   {
     return 0; //TODO fix later
   }
-  // Returns fraction of bytes allocated over total cache size between [0, 1]
+  // Returns fraction of bytes allocated over total cache size
   double TotalUtilization()
   {
     return 0; //TODO fix later
   }
 
  private:
-  explicit RequestResponseCache(std::string address, std::string username, std::string password);
+  explicit RedisResponseCache(std::string address, std::string username, std::string password);
 
   // Build CacheEntry from InferenceResponse
   Status BuildCacheEntry(
@@ -149,21 +123,8 @@ class RequestResponseCache {
   // Build InferenceResponse from CacheEntry
   Status BuildInferenceResponse(
       const RedisCacheEntry<std::string>& entry, InferenceResponse* response);
-  // Helper function to hash data buffers used by "input"
-  Status HashInputBuffers(const InferenceRequest::Input* input, size_t* seed);
-  // Helper function to hash each input in "request"
-  Status HashInputs(const InferenceRequest& request, size_t* seed);
-  // Helper function to hash request and store it in "key"
-  Status Hash(const InferenceRequest& request, uint64_t* key);
 
   std::unique_ptr<sw::redis::Redis> _client;
-  // Cache metrics
-  size_t num_evictions_ = 0;
-  size_t num_lookups_ = 0;
-  size_t num_hits_ = 0;
-  size_t num_misses_ = 0;
-  uint64_t total_lookup_latency_ns_ = 0;
-  uint64_t total_insertion_latency_ns_ = 0;
 };
 
 }}  // namespace triton::core

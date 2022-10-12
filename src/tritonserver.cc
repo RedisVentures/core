@@ -236,6 +236,16 @@ class TritonServerOptions {
   uint64_t ResponseCacheByteSize() const { return response_cache_byte_size_; }
   void SetResponseCacheByteSize(uint64_t s) { response_cache_byte_size_ = s; }
 
+  std::string ResponseCacheAddress() const { return response_cache_address_; }
+  void SetResponseCacheAddress(std::string addr) { response_cache_address_ = addr; }
+
+  std::string ResponseCacheUsername() const { return response_cache_username_; }
+  void SetResponseCacheUsername(std::string username) { response_cache_username_ = username; }
+
+  std::string ResponseCachePassword() const { return response_cache_password_; }
+  void SetResponseCachePassword(std::string pass) { response_cache_password_ = pass; }
+
+
   const std::map<int, uint64_t>& CudaMemoryPoolByteSize() const
   {
     return cuda_memory_pool_size_;
@@ -328,6 +338,9 @@ class TritonServerOptions {
   unsigned int exit_timeout_;
   uint64_t pinned_memory_pool_size_;
   uint64_t response_cache_byte_size_;
+  std::string response_cache_address_;
+  std::string response_cache_username_;
+  std::string response_cache_password_;
   unsigned int buffer_manager_thread_count_;
   unsigned int model_load_thread_count_;
   std::map<int, uint64_t> cuda_memory_pool_size_;
@@ -1171,6 +1184,47 @@ TRITONSERVER_ServerOptionsSetResponseCacheByteSize(
   TritonServerOptions* loptions =
       reinterpret_cast<TritonServerOptions*>(options);
   loptions->SetResponseCacheByteSize(size);
+  return nullptr;  // Success
+}
+
+TRITONAPI_DECLSPEC TRITONSERVER_Error*
+TRITONSERVER_ServerOptionsSetResponseCacheAddress(
+    TRITONSERVER_ServerOptions* options, char* address)
+{
+  TritonServerOptions* loptions =
+      reinterpret_cast<TritonServerOptions*>(options);
+  std::string address_;
+  if (address != nullptr) {
+    address_ = std::string(address);
+  }
+  loptions->SetResponseCacheAddress(address_);
+  return nullptr;  // Success
+}
+TRITONAPI_DECLSPEC TRITONSERVER_Error*
+TRITONSERVER_ServerOptionsSetResponseCachePassword(
+    TRITONSERVER_ServerOptions* options, char* password)
+{
+  TritonServerOptions* loptions =
+      reinterpret_cast<TritonServerOptions*>(options);
+  std::string pw_;
+  if (password != nullptr) {
+    pw_ = std::string(password);
+  }
+  loptions->SetResponseCachePassword(pw_);
+  return nullptr;  // Success
+}
+
+TRITONAPI_DECLSPEC TRITONSERVER_Error*
+TRITONSERVER_ServerOptionsSetResponseCacheUsername(
+    TRITONSERVER_ServerOptions* options, char* username)
+{
+  TritonServerOptions* loptions =
+      reinterpret_cast<TritonServerOptions*>(options);
+  std::string user_;
+  if (username != nullptr) {
+    user_ = std::string(username);
+  }
+  loptions->SetResponseCacheUsername(user_);
   return nullptr;  // Success
 }
 

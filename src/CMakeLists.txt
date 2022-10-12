@@ -142,7 +142,8 @@ set(
   pinned_memory_manager.cc
   rate_limiter.cc
   repo_agent.cc
-  redis_cache.cc
+  response_cache.cc
+  local_response_cache.cc
   scheduler_utils.cc
   sequence_batch_scheduler.cc
   sequence_state.cc
@@ -187,7 +188,8 @@ set(
   rate_limiter.h
   repo_agent.h
   response_allocator.h
-  redis_cache.h
+  response_cache.h
+  local_response_cache.h
   scheduler.h
   scheduler_utils.h
   sequence_batch_scheduler.h
@@ -211,6 +213,20 @@ if(${TRITON_ENABLE_GPU})
     ${SERVER_HDRS}
     cuda_memory_manager.h
     model_config_cuda.h
+  )
+endif() # TRITON_ENABLE_GPU
+
+if(${TRITON_ENABLE_REDIS_CACHE})
+  set(
+    SERVER_SRCS
+    ${SERVER_SRCS}
+    redis_cache.cc
+    redis.cc
+  )
+  set(
+    SERVER_HDRS
+    ${SERVER_HDRS}
+    redis_cache.h
   )
 endif() # TRITON_ENABLE_GPU
 
@@ -250,8 +266,7 @@ else()
   target_compile_options(
     triton-core
     PRIVATE
-     -fpermissive
-      #-Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Werror -fpermissive
+     -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Werror -fpermissive
   )
   set_target_properties(
     triton-core
@@ -507,7 +522,7 @@ if(${TRITON_ENABLE_GPU})
 endif() # TRITON_ENABLE_GPU
 
 if(${TRITON_ENABLE_REDIS_CACHE})
-find_library(HIREDIS_LIBRARY NAMES hiredis)
+  find_library(HIREDIS_LIBRARY NAMES hiredis)
   find_library(REDISPP_LIBRARY NAMES redis++)
   target_link_libraries(
     triton-core

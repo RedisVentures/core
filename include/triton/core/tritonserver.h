@@ -1703,6 +1703,37 @@ TRITONSERVER_DECLSPEC TRITONSERVER_Error*
 TRITONSERVER_ServerOptionsSetResponseCacheByteSize(
     TRITONSERVER_ServerOptions* options, uint64_t size);
 
+/// Set the address of the redis (or redis cluster) instance
+/// to be used for the request response cache
+///
+/// \param options The server options object.
+/// \param address The Redis cache address
+/// \return a TRITONSERVER_Error indicating success or failure.
+TRITONSERVER_DECLSPEC TRITONSERVER_Error*
+TRITONSERVER_ServerOptionsSetResponseCacheAddress(
+    TRITONSERVER_ServerOptions* options, char* address);
+
+/// Set the address of the redis (or redis cluster) instance
+/// to be used for the request response cache
+///
+/// \param options The server options object.
+/// \param password The password to use for communication with Redis.
+/// \return a TRITONSERVER_Error indicating success or failure.
+TRITONSERVER_DECLSPEC TRITONSERVER_Error*
+TRITONSERVER_ServerOptionsSetResponseCachePassword(
+    TRITONSERVER_ServerOptions* options, char* password);
+
+/// Set the username of the redis (or redis cluster) instance
+/// to be used for the request response cache
+///
+/// \param options The server options object.
+/// \param username The username to use for communication with Redis
+/// \return a TRITONSERVER_Error indicating success or failure.
+TRITONSERVER_DECLSPEC TRITONSERVER_Error*
+TRITONSERVER_ServerOptionsSetResponseCacheUsername(
+    TRITONSERVER_ServerOptions* options, char* username);
+
+
 /// Set the minimum support CUDA compute capability in a server
 /// options.
 ///

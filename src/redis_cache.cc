@@ -24,72 +24,120 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include <sstream>
+#include <cstdio>
 #include <iterator>
 
 #include "redis_cache.h"
-#include "infer_stats.h"
-#include "triton/common/logging.h"
-#include "redis.cc"
-#include <sstream>
-#include <cstdio>
 
-namespace {
 
-enum class ScopedTimerType { INSERTION, LOOKUP };
+std::string prefix_key(const uint64_t key) {
+  //use hash_tag here
+  const std::string s_key = std::to_string(key);
+  std::string prefix = "{" + s_key + "}";
+  return prefix;
+}
 
-class ScopedTimer {
- public:
-  explicit ScopedTimer(
-      triton::core::InferenceRequest& request, uint64_t& duration,
-      ScopedTimerType type)
-      : request_(request), duration_(duration), type_(type)
-  {
-    switch (type_) {
-      case ScopedTimerType::LOOKUP:
-        request_.CaptureCacheLookupStartNs();
-        break;
-      case ScopedTimerType::INSERTION:
-        request_.CaptureCacheInsertionStartNs();
-        break;
-    }
+
+std::unique_ptr<sw::redis::Redis> init_client(
+    const std::string& address,
+    const std::string& user_name,
+    const std::string& password) {
+  // Put together cluster configuration.
+  sw::redis::ConnectionOptions options;
+
+  const std::string::size_type comma_pos = address.find(',');
+  const std::string host = comma_pos == std::string::npos ? address : address.substr(0, comma_pos);
+  const std::string::size_type colon_pos = host.find(':');
+  if (colon_pos == std::string::npos) {
+    options.host = host;
+  } else {
+    options.host = host.substr(0, colon_pos);
+    options.port = std::stoi(host.substr(colon_pos + 1));
   }
+  options.user = user_name;
+  options.password = password;
+  options.keep_alive = true;
 
-  ~ScopedTimer()
-  {
-    switch (type_) {
-      case ScopedTimerType::LOOKUP:
-        request_.CaptureCacheLookupEndNs();
-        duration_ +=
-            request_.CacheLookupEndNs() - request_.CacheLookupStartNs();
-        break;
-      case ScopedTimerType::INSERTION:
-        request_.CaptureCacheInsertionEndNs();
-        duration_ +=
-            request_.CacheInsertionEndNs() - request_.CacheInsertionStartNs();
-        break;
+  sw::redis::ConnectionPoolOptions pool_options;
+  pool_options.size = 1;
+
+  // Connect to cluster.
+  std::cout << "Connecting via " << options.host << ':' << options.port << "..." << std::endl;
+  std::unique_ptr<sw::redis::Redis> redis = std::make_unique<sw::redis::Redis>(options, pool_options);
+  return redis;
+}
+
+void cache_set(
+  std::unique_ptr<sw::redis::Redis> &redis,
+  RedisCacheEntry<std::string> &cache_entry) {
+
+    //use hash_tag here
+    const std::string& prefix = "{" + cache_entry.key + "}";
+
+    // set number of entries in the top level
+    const std::string& entries_v = std::to_string(cache_entry.num_entries);
+
+    //set num entries prefix
+    bool is_set = redis->set(prefix, entries_v);
+    std::cout << std::to_string(is_set) << std::endl;
+
+
+    int i = 1;
+    for (auto &output: cache_entry.outputs) {
+      const std::string& key_v = prefix + "." + std::to_string(i);
+
+      // set response in a redis hash field
+      redis->hmset(key_v, output.fields.begin(), output.fields.end());
+      i += 1;
     }
-  }
-
- private:
-  triton::core::InferenceRequest& request_;
-  uint64_t& duration_;
-  ScopedTimerType type_;
-};
+}
 
 
-}  // namespace
+RedisCacheEntry<std::string> cache_get(
+    std::unique_ptr<sw::redis::Redis> &redis,
+    const std::string& hash_key) {
+
+    RedisCacheEntry<std::string> entry;
+
+    //use hash_tag here
+    const std::string& prefix = "{" + hash_key + "}";
+
+    std::string num = redis->get(prefix).value();
+    int num_entries = std::atoi(num.c_str());
+
+    std::vector<HashEntry<std::string>> entries;
+
+    /// TODO pipeline these
+    for (int i=1; i <=num_entries; i++) {
+      HashEntry<std::string> h;
+      const std::string& key = prefix + "." + std::to_string(i);
+      redis->hgetall(key, std::inserter(h.fields, h.fields.begin()));
+      entries.emplace_back(h);
+    }
+
+    entry.key = prefix;
+    entry.num_entries = num_entries;
+    entry.outputs = entries;
+
+    return entry;
+}
+
+
 
 namespace triton { namespace core {
 
+
+
 Status
-RequestResponseCache::Create(
+RedisResponseCache::Create(
     std::string address,
     std::string username,
     std::string password,
     std::unique_ptr<RequestResponseCache>* cache)
 {
   try {
-    cache->reset(new RequestResponseCache(address, username, password));
+    cache->reset(new RedisResponseCache(address, username, password));
   }
   catch (const std::exception& ex) {
     return Status(
@@ -100,7 +148,7 @@ RequestResponseCache::Create(
   return Status::Success;
 }
 
-RequestResponseCache::RequestResponseCache(std::string address, std::string username, std::string password)
+RedisResponseCache::RedisResponseCache(std::string address, std::string username, std::string password)
 {
 
   try {
@@ -114,18 +162,19 @@ RequestResponseCache::RequestResponseCache(std::string address, std::string user
   LOG_INFO << "Redis Response Cache is located at:" << address;
 }
 
-RequestResponseCache::~RequestResponseCache()
+RedisResponseCache::~RedisResponseCache()
 {
+  // flushall?
   this->_client.reset();
 }
 
-bool RequestResponseCache::Exists(const uint64_t key) {
+bool RedisResponseCache::Exists(const uint64_t key) {
   std::string prefixed_key = prefix_key(key);
   return this->_client->exists(prefixed_key);
 }
 
 Status
-RequestResponseCache::Lookup(
+RedisResponseCache::Lookup(
     InferenceResponse* const response, InferenceRequest* const request)
 {
 
@@ -140,7 +189,7 @@ RequestResponseCache::Lookup(
 
   // Hash the request and set cache key if it hasn't already been set
   if (!request->CacheKeyIsSet()) {
-    RETURN_IF_ERROR(HashAndSet(request));
+    RETURN_IF_ERROR(RequestResponseCache::HashAndSet(request));
   }
   uint64_t key = request->CacheKey();
 
@@ -175,7 +224,7 @@ RequestResponseCache::Lookup(
 }
 
 Status
-RequestResponseCache::Insert(
+RedisResponseCache::Insert(
     const InferenceResponse& response, InferenceRequest* const request)
 {
   // Lock on cache insertion
@@ -192,7 +241,7 @@ RequestResponseCache::Insert(
 
   // Hash the request and set cache key if it hasn't already been set
   if (!request->CacheKeyIsSet()) {
-    RETURN_IF_ERROR(HashAndSet(request));
+    RETURN_IF_ERROR(RequestResponseCache::HashAndSet(request));
   }
   uint64_t key = request->CacheKey();
 
@@ -225,9 +274,8 @@ RequestResponseCache::Insert(
 }
 
 
-
 Status
-RequestResponseCache::BuildCacheEntry(
+RedisResponseCache::BuildCacheEntry(
     const InferenceResponse& response, RedisCacheEntry<std::string>* cache_entry)
 {
 
@@ -316,7 +364,7 @@ std::vector<int64_t> get_dims(std::string dim_str) {
 }
 
 Status
-RequestResponseCache::BuildInferenceResponse(
+RedisResponseCache::BuildInferenceResponse(
     const RedisCacheEntry<std::string>& entry, InferenceResponse* response)
 {
   if (response == nullptr) {
@@ -389,83 +437,6 @@ RequestResponseCache::BuildInferenceResponse(
     // TODO: Add field to InferenceResponse to indicate this was from cache
     // response.cached = true;
   }
-  return Status::Success;
-}
-
-Status
-RequestResponseCache::HashInputBuffers(
-    const InferenceRequest::Input* input, size_t* seed)
-{
-  // Iterate over each data buffer in input in case of non-contiguous memory
-  for (size_t idx = 0; idx < input->DataBufferCount(); ++idx) {
-    const void* src_buffer;
-    size_t src_byte_size;
-    TRITONSERVER_MemoryType src_memory_type;
-    int64_t src_memory_type_id;
-
-    RETURN_IF_ERROR(input->DataBuffer(
-        idx, &src_buffer, &src_byte_size, &src_memory_type,
-        &src_memory_type_id));
-
-    // TODO: Handle other memory types
-    if (src_memory_type != TRITONSERVER_MEMORY_CPU &&
-        src_memory_type != TRITONSERVER_MEMORY_CPU_PINNED) {
-      return Status(
-          Status::Code::INTERNAL,
-          "Only input buffers in CPU memory are allowed in cache currently");
-    }
-
-    // Add each byte of input buffer chunk to hash
-    const unsigned char* tmp = static_cast<const unsigned char*>(src_buffer);
-    for (uint64_t byte = 0; byte < src_byte_size; byte++) {
-      boost::hash_combine(*seed, tmp[byte]);
-    }
-  }
-
-  return Status::Success;
-}
-
-
-
-
-Status
-RequestResponseCache::HashInputs(const InferenceRequest& request, size_t* seed)
-{
-  const auto& inputs = request.ImmutableInputs();
-  // Convert inputs to ordered map for consistency in hashing
-  // inputs sorted by key (input) name
-  std::map<std::string, InferenceRequest::Input*> ordered_inputs(
-      inputs.begin(), inputs.end());
-  for (const auto& input : ordered_inputs) {
-    // Add input name to hash
-    boost::hash_combine(*seed, input.second->Name());
-    // Fetch input buffer for hashing raw data
-    RETURN_IF_ERROR(HashInputBuffers(input.second, seed));
-  }
-
-  return Status::Success;
-}
-
-
-Status
-RequestResponseCache::Hash(const InferenceRequest& request, uint64_t* key)
-{
-  std::size_t seed = 0;
-  // Add request model name to hash
-  boost::hash_combine(seed, request.ModelName());
-  // Add request model version to hash
-  boost::hash_combine(seed, request.ActualModelVersion());
-  RETURN_IF_ERROR(HashInputs(request, &seed));
-  *key = static_cast<uint64_t>(seed);
-  return Status::Success;
-}
-
-Status
-RequestResponseCache::HashAndSet(InferenceRequest* const request)
-{
-  uint64_t key = 0;
-  RETURN_IF_ERROR(Hash(*request, &key));
-  request->SetCacheKey(key);
   return Status::Success;
 }
 

@@ -36,7 +36,7 @@
 #include "prometheus/registry.h"
 #include "prometheus/serializer.h"
 #include "prometheus/text_serializer.h"
-#include "redis_cache.h"
+#include "response_cache.h"
 
 #ifdef TRITON_ENABLE_METRICS_GPU
 #include <dcgm_agent.h>
