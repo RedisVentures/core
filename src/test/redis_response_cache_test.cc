@@ -557,7 +557,6 @@ TEST_F(RequestResponseCacheTest, TestHashing)
   ASSERT_EQ(request3->CacheKey(), request4->CacheKey());
 }
 
-// TODO  ENABLE WHEN DBSIZE FIXED
 
 // Test inserting into cache with multiple threads in parallel
 // and asserting that the correct number of entries and evictions
@@ -572,6 +571,7 @@ TEST_F(RequestResponseCacheTest, TestParallelInsertion)
     tc::redis_username,
     tc::redis_password, &cache);
 
+  auto status = cache->Flush();
   cache_stats(cache);
 
   // Create threads
@@ -590,10 +590,9 @@ TEST_F(RequestResponseCacheTest, TestParallelInsertion)
     threads[idx].join();
   }
 
-  // Cache size only has room for 2 entries of 100 ints, so we expect 2 entries
-  // and N-2 evictions for N threads
+  // 10 threads, 10 requests
   cache_stats(cache);
-  ASSERT_EQ(cache->NumEntries(), 2u) << "NumEntries: " << cache->NumEntries();
+  ASSERT_EQ(cache->NumEntries(), 10) << "NumEntries: " << cache->NumEntries();
 }
 
 
@@ -608,10 +607,11 @@ TEST_F(RequestResponseCacheTest, TestEndToEnd)
     tc::redis_username,
     tc::redis_password, &cache);
 
+  auto status = cache->Flush();
   cache_stats(cache);
 
   std::cout << "Lookup request0 in empty cache" << std::endl;
-  auto status = cache->Lookup(nullptr, request0);
+  status = cache->Lookup(nullptr, request0);
   // This hash not in cache yet
   ASSERT_FALSE(status.IsOk()) << "hash [" +
                                      std::to_string(request0->CacheKey()) +
@@ -629,8 +629,8 @@ TEST_F(RequestResponseCacheTest, TestEndToEnd)
             << std::endl;
   //ASSERT_TRUE(total_lookup_latency > 0)
   //    << "ERROR: Total lookup latency should be non-zero";
-  //ASSERT_TRUE(total_insertion_latency > 0)
-  //    << "ERROR: Total insertion latency should be non-zero";
+  ASSERT_TRUE(total_insertion_latency > 0)
+      << "ERROR: Total insertion latency should be non-zero";
 
   // Duplicate insertion should fail since request0 already exists in cache
   status = cache->Insert(*response0, request0);

@@ -31,14 +31,6 @@
 #include "redis_cache.h"
 
 
-std::string prefix_key(const uint64_t key) {
-  //use hash_tag here
-  const std::string s_key = std::to_string(key);
-  std::string prefix = "{" + s_key + "}";
-  return prefix;
-}
-
-
 std::unique_ptr<sw::redis::Redis> init_client(
     const std::string& address,
     const std::string& user_name,
@@ -68,65 +60,8 @@ std::unique_ptr<sw::redis::Redis> init_client(
   return redis;
 }
 
-void cache_set(
-  std::unique_ptr<sw::redis::Redis> &redis,
-  RedisCacheEntry<std::string> &cache_entry) {
-
-    //use hash_tag here
-    const std::string& prefix = "{" + cache_entry.key + "}";
-
-    // set number of entries in the top level
-    const std::string& entries_v = std::to_string(cache_entry.num_entries);
-
-    //set num entries prefix
-    bool is_set = redis->set(prefix, entries_v);
-    std::cout << std::to_string(is_set) << std::endl;
-
-
-    int i = 1;
-    for (auto &output: cache_entry.outputs) {
-      const std::string& key_v = prefix + "." + std::to_string(i);
-
-      // set response in a redis hash field
-      redis->hmset(key_v, output.fields.begin(), output.fields.end());
-      i += 1;
-    }
-}
-
-
-RedisCacheEntry<std::string> cache_get(
-    std::unique_ptr<sw::redis::Redis> &redis,
-    const std::string& hash_key) {
-
-    RedisCacheEntry<std::string> entry;
-
-    //use hash_tag here
-    const std::string& prefix = "{" + hash_key + "}";
-
-    std::string num = redis->get(prefix).value();
-    int num_entries = std::atoi(num.c_str());
-
-    std::vector<HashEntry<std::string>> entries;
-
-    /// TODO pipeline these
-    for (int i=1; i <=num_entries; i++) {
-      HashEntry<std::string> h;
-      const std::string& key = prefix + "." + std::to_string(i);
-      redis->hgetall(key, std::inserter(h.fields, h.fields.begin()));
-      entries.emplace_back(h);
-    }
-
-    entry.key = prefix;
-    entry.num_entries = num_entries;
-    entry.outputs = entries;
-
-    return entry;
-}
-
-
 
 namespace triton { namespace core {
-
 
 
 Status
@@ -164,13 +99,12 @@ RedisResponseCache::RedisResponseCache(std::string address, std::string username
 
 RedisResponseCache::~RedisResponseCache()
 {
-  // flushall?
   this->_client.reset();
 }
 
 bool RedisResponseCache::Exists(const uint64_t key) {
-  std::string prefixed_key = prefix_key(key);
-  return this->_client->exists(prefixed_key);
+  std::string key_s = std::to_string(key);
+  return this->_client->exists(key_s);
 }
 
 Status
@@ -210,7 +144,10 @@ RedisResponseCache::Lookup(
   }
   // clean this up
   const std::string& key_v = std::to_string(key);
-  auto entry = cache_get(this->_client, key_v);
+
+  RedisCacheEntry<std::string> entry;
+  entry.key = key_v;
+  RETURN_IF_ERROR(cache_get(&entry));
 
   // If find succeeds, it's a cache hit
   num_hits_++;
@@ -227,8 +164,6 @@ Status
 RedisResponseCache::Insert(
     const InferenceResponse& response, InferenceRequest* const request)
 {
-  // Lock on cache insertion
-  //std::lock_guard<std::recursive_mutex> lk(cache_mtx_);
 
   if (request == nullptr) {
     return Status(
@@ -258,12 +193,10 @@ RedisResponseCache::Insert(
 
   // Construct cache entry from response
   auto cache_entry = RedisCacheEntry<std::string>();
-  //cache_entry.key = {reinterpret_cast<const char *>(&key), sizeof(uint64_t)};
   cache_entry.key = std::to_string(key);
 
   RETURN_IF_ERROR(BuildCacheEntry(response, &cache_entry));
-
-  cache_set(this->_client, cache_entry);
+  RETURN_IF_ERROR(cache_set(cache_entry));
 
   // Insert entry into cache
   LOG_VERBOSE(1) << request->LogRequest()
@@ -282,7 +215,6 @@ RedisResponseCache::BuildCacheEntry(
   // Build cache entry data from response outputs
   int num_entries = 0;
   for (const auto& response_output : response.Outputs()) {
-    HashEntry<std::string> cache_input;
 
     // Fetch output buffer details
     const void* response_buffer = nullptr;
@@ -311,34 +243,21 @@ RedisResponseCache::BuildCacheEntry(
     // Copy data from response buffer to cache entry output buffer
     std::memcpy(buffer, response_buffer, response_byte_size);
 
-    const std::string& buf_str = "buffer";
-    const std::string& name_str = "name";
-    const std::string& dt_str = "datatype";
-    const std::string& shape_str = "shape";
-    const std::string& size_str = "size";
-
+    // convert datatypes
     const std::string& byte_size = std::to_string(response_byte_size);
     const std::string& buf_shape = triton::common::DimsListToString(response_output.Shape());
     const std::string& buf = std::string((char*)buffer, response_byte_size);
-
-    const std::string& name = std::string(response_output.Name());
     const std::string& dt = triton::common::DataTypeToProtocolString(response_output.DType());
 
-    cache_input.fields.insert({
-      {buf_str, buf},
-      {name_str, name},
-      {dt_str, dt},
-      {shape_str, buf_shape},
-      {size_str, byte_size}
+    cache_entry->fields.insert({
+      {suffix_key("size", num_entries), byte_size},
+      {suffix_key("dtype", num_entries), dt},
+      {suffix_key("shape", num_entries), buf_shape},
+      {suffix_key("buffer", num_entries), buf},
+      {suffix_key("name", num_entries), response_output.Name()}
     });
 
-      // for debugging
-      //for (auto &field: cache_input.fields) {
-      //  std::cout<< field.first << " = " << field.second << std::endl;
-      //}
-
     // Add each output to cache entry
-    cache_entry->outputs.emplace_back(cache_input);
     num_entries += 1;
   }
   cache_entry->num_entries = num_entries;
@@ -346,7 +265,12 @@ RedisResponseCache::BuildCacheEntry(
   return Status::Success;
 }
 
-std::vector<int64_t> get_dims(std::string dim_str) {
+std::string RedisResponseCache::suffix_key(std::string key, int suffix) {
+  std::string s_key = key + "_" + std::to_string(suffix);
+  return s_key;
+}
+
+std::vector<int64_t> RedisResponseCache::get_dims(std::string dim_str) {
 
     int start = dim_str.find_first_of("[");
     int end = dim_str.find_last_of("]");
@@ -379,18 +303,25 @@ RedisResponseCache::BuildInferenceResponse(
         "InferenceResponse already contains some outputs");
   }
 
-  for (HashEntry<std::string> output : entry.outputs) {
+  for (int i = 0; i < entry.num_entries; i++) {
+
+    // access fields in cache entry hash map
+    const std::string& name = entry.fields.at(suffix_key("name", i));
+    const std::string& dtype = entry.fields.at(suffix_key("dtype", i));
+    const std::string& bufsize = entry.fields.at(suffix_key("size", i));
+    const std::string& shape = entry.fields.at(suffix_key("shape", i));
+    const std::string& buf = entry.fields.at(suffix_key("buffer", i));
 
 
-    const std::string& name = output.fields["name"];
-    const std::string& dtype = output.fields["datatype"];
-    const std::string& bufsize = output.fields["size"];
-    const std::string& dim_str = output.fields["shape"];
-    const std::string& buf = output.fields["buffer"];
-    std::vector<int64_t> dims = get_dims(dim_str);
-
+    // convert datatypes back to InferenceResponse datatypes
+    // get dimensions
+    std::vector<int64_t> dims = get_dims(shape);
     // get datatype
     inference::DataType datatype = triton::common::ProtocolStringToDataType(dtype);
+    //cast buffer size to size_t
+    std::stringstream sstream(bufsize);
+    size_t buffer_size;
+    sstream >> buffer_size;
 
     InferenceResponse::Output* response_output = nullptr;
     RETURN_IF_ERROR(response->AddOutput(
@@ -410,11 +341,6 @@ RedisResponseCache::BuildInferenceResponse(
 
     // Allocate buffer for inference response
     void* buffer;
-
-    //cast buffer size to size_t
-    std::stringstream sstream(bufsize);
-    size_t buffer_size;
-    sstream >> buffer_size;
 
     RETURN_IF_ERROR(response_output->AllocateDataBuffer(
         &buffer, buffer_size, &memory_type, &memory_type_id));
@@ -439,5 +365,86 @@ RedisResponseCache::BuildInferenceResponse(
   }
   return Status::Success;
 }
+
+Status
+RedisResponseCache::cache_set(RedisCacheEntry<std::string> &cache_entry) {
+
+    // set number of entries in the top level
+    const std::string& entries_k = "entries";
+    const std::string& entries_v = std::to_string(cache_entry.num_entries);
+    cache_entry.fields.insert({entries_k, entries_v});
+
+    // set response in a redis hash field
+    try {
+      _client->hmset(
+        cache_entry.key,
+        cache_entry.fields.begin(),
+        cache_entry.fields.end()
+      );
+    }
+    catch (sw::redis::TimeoutError &e) {
+      std::string err = "Timeout inserting key" + cache_entry.key + " into cache.";
+      LOG_ERROR << err << "\n Failed with error " + std::string(e.what());
+      return Status(
+          Status::Code::INTERNAL, err);
+    }
+    catch (sw::redis::IoError &e) {
+      std::string err = "Failed to insert key" + cache_entry.key + " into cache.";
+      LOG_ERROR << err << "\n Failed with error " + std::string(e.what());
+      return Status(
+          Status::Code::INTERNAL, err);
+      }
+    catch (...) {
+      std::string err = "Failed to insert key" + cache_entry.key + " into cache.";
+      LOG_ERROR << err;
+      return Status(
+          Status::Code::INTERNAL, err);
+      }
+    return Status::Success;
+  }
+
+
+
+Status
+RedisResponseCache::cache_get(RedisCacheEntry<std::string> *cache_entry) {
+    try {
+      _client->hgetall(
+        cache_entry->key,
+        std::inserter(cache_entry->fields, cache_entry->fields.begin())
+      );
+
+    }
+    catch (sw::redis::TimeoutError &e) {
+      std::string err = "Timeout inserting key" + cache_entry->key + " into cache.";
+      LOG_ERROR << err << "\n Failed with error " + std::string(e.what());
+      return Status(
+          Status::Code::INTERNAL, err);
+    }
+    catch (sw::redis::IoError &e) {
+      std::string err = "Failed to insert key" + cache_entry->key + " into cache.";
+      LOG_ERROR << err << "\n Failed with error " + std::string(e.what());
+      return Status(
+          Status::Code::INTERNAL, err);
+    }
+    catch (...) {
+      std::string err = "Failed to insert key" + cache_entry->key + " into cache.";
+      LOG_ERROR << err;
+      return Status(
+          Status::Code::INTERNAL, err);
+    }
+
+    // emptiness check
+    if (cache_entry->fields.empty()) {
+      return Status(
+        Status::Code::INTERNAL,
+        "Failed to retrieve key from remote cache");
+    }
+
+    // set number of entries at the top level
+    const char* entries = cache_entry->fields.at("entries").c_str();
+    cache_entry->num_entries = std::atoi(entries);
+
+    return Status::Success;
+  }
 
 }}  // namespace triton::core

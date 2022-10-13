@@ -74,6 +74,13 @@ class LocalResponseCache: public RequestResponseCache {
   // Evict entry from cache based on policy
   // Return Status object indicating success or failure.
   Status Evict();
+
+  // emtpy the cache
+  Status Flush() {
+    // TODO implement this.
+    return Status(Status::Code::SUCCESS);
+  }
+
   // Returns number of items in cache
   size_t NumEntries()
   {

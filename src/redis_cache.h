@@ -40,17 +40,11 @@
 
 
 template <typename Tkv>
-struct HashEntry {
-  std::unordered_map<Tkv, Tkv> fields;
-};
-
-template <typename Tkv>
 struct RedisCacheEntry {
   std::string key;
   int num_entries = 1;
-  std::vector<HashEntry<Tkv>> outputs;
+  std::unordered_map<Tkv, Tkv> fields;
 };
-
 
 
 namespace triton { namespace core {
@@ -78,11 +72,18 @@ class RedisResponseCache : public RequestResponseCache {
     return status;
   }
 
+  Status Flush() {
+    // empty the entire database (mostly used in testing)
+    _client->flushall();
+   return Status(Status::Code::SUCCESS);
+  }
+
   // Returns number of items in cache
   size_t NumEntries()
   {
-    // TODO consider how this will work with dual key design
-    // will currently return 2x number of keys by design
+    // TODO think about if the cache is used for more than 1 purpose
+    // this method counts keys.. scanning and keys commands are too slow
+    // maybe just make this explicit?
     return (size_t)_client->dbsize();
   }
   // Returns number of items evicted in cache lifespan
@@ -123,6 +124,13 @@ class RedisResponseCache : public RequestResponseCache {
   // Build InferenceResponse from CacheEntry
   Status BuildInferenceResponse(
       const RedisCacheEntry<std::string>& entry, InferenceResponse* response);
+
+  // get/set
+  Status cache_set(RedisCacheEntry<std::string> &cache_entry);
+  Status cache_get(RedisCacheEntry<std::string> *cache_entry);
+  // helpers
+  std::string suffix_key(std::string key, int suffix);
+  std::vector<int64_t> get_dims(std::string dim_str);
 
   std::unique_ptr<sw::redis::Redis> _client;
 };

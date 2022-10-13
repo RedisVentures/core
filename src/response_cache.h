@@ -100,6 +100,8 @@ class RequestResponseCache {
   // TODO something else better here?
   virtual Status Evict() = 0;
 
+  virtual Status Flush() = 0;
+
   // Hash inference request for cache access and store it in "request" object.
   // This will also be called internally in Lookup/Insert if the request hasn't
   // already stored it's hash. It is up to the user to update the hash in the
