@@ -166,9 +166,8 @@ endif() # TRITON_ENABLE_GPU
 # Unit test for RedisResponseCache
 #
 #if(${TRITON_ENABLE_REDIS_CACHE})
-# TODO what should be here for PATHS??
-find_library(REDISPP NAMES redis++ PATHS /usr/local/lib)
-find_library(HREDIS NAMES hiredis PATHS /usr/local/lib)
+find_library(REDISPP NAMES redis++ PATHS ${REDISPP_DIR}/lib)
+find_library(HREDIS NAMES hiredis PATHS ${HIREDIS_DIR}/lib)
 
   add_executable(
     redis_response_cache_test
@@ -205,6 +204,8 @@ find_library(HREDIS NAMES hiredis PATHS /usr/local/lib)
       ${CMAKE_CURRENT_SOURCE_DIR}/../../include
       ${GTEST_INCLUDE_DIRS}
       ${CNMEM_PATH}/include
+      ${HIREDIS_DIR}/include
+      ${REDISPP_DIR}/include
   )
 
   target_compile_definitions(

@@ -190,10 +190,10 @@ if(NOT TRITON_CORE_HEADERS_ONLY)
 
   include(FetchContent)
   FetchContent_Declare(
-    repo-third-party
-    URL /home/spartee/dev/Redis/nvidia/triton/triton_third_party
-  #  GIT_TAG ${TRITON_THIRD_PARTY_REPO_TAG}
-  )
+  repo-third-party
+  GIT_REPOSITORY https://github.com/RedisVentures/triton_third_party.git
+  GIT_TAG redis_cache
+)
   FetchContent_MakeAvailable(repo-third-party)
 
   # Need to use ExternalProject for our builds so that we can get the
@@ -284,7 +284,8 @@ if(NOT TRITON_CORE_HEADERS_ONLY)
       -Daws-c-common_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/aws-sdk-cpp/lib/aws-c-common/cmake
       -Daws-checksums_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/aws-sdk-cpp/lib/aws-checksums/cmake
       -DCNMEM_PATH:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/cnmem
-      -Dredis++_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/redis++/share/cmake/redis++
+      -DREDISPP_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/redis++
+      -DHIREDIS_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/hiredis
       -DTRITON_COMMON_REPO_TAG:STRING=${TRITON_COMMON_REPO_TAG}
       -DTRITON_EXTRA_LIB_PATHS:PATH=${TRITON_EXTRA_LIB_PATHS}
       -DTRITON_ENABLE_NVTX:BOOL=${TRITON_ENABLE_NVTX}
