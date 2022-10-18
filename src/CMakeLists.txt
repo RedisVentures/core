@@ -101,8 +101,8 @@ endif()
 # redis
 #
 if(${TRITON_ENABLE_REDIS_CACHE})
-  find_package(hiredis CONFIG REQUIRED)
-  find_package(redis++ CONFIG REQUIRED)
+  find_package(hiredis REQUIRED)
+  find_package(redis++ REQUIRED)
   message(STATUS "Using redispp ${redis++_VERSION}")
 endif()
 
