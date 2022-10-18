@@ -101,9 +101,9 @@ endif()
 # redis
 #
 if(${TRITON_ENABLE_REDIS_CACHE})
-  find_library(REDISPP_LIBRARY NAMES redis++ PATHS ${REDISPP_DIR}/lib)
-  find_library(HIREDIS_LIBRARY NAMES hiredis PATHS ${HIREDIS_DIR}/lib)
+  find_library(REDISPP_LIBRARY NAMES redis++ PATHS ${REDISPP_DIR}/lib NO_DEFAULT_PATH REQUIRED)
   message(STATUS "Using redispp ${REDISPP_LIBRARY_VERSION}")
+  find_library(HIREDIS_LIBRARY NAMES hiredis PATHS ${HIREDIS_DIR}/lib NO_DEFAULT_PATH REQUIRED)
 endif()
 
 
@@ -522,8 +522,8 @@ if(${TRITON_ENABLE_GPU})
 endif() # TRITON_ENABLE_GPU
 
 if(${TRITON_ENABLE_REDIS_CACHE})
-  find_library(REDISPP_LIBRARY NAMES redis++ PATHS ${REDISPP_DIR}/lib)
-  find_library(HIREDIS_LIBRARY NAMES hiredis PATHS ${HIREDIS_DIR}/lib)
+  find_library(REDISPP_LIBRARY NAMES redis++ PATHS ${REDISPP_DIR}/lib NO_DEFAULT_PATH REQUIRED)
+  find_library(HIREDIS_LIBRARY NAMES hiredis PATHS ${HIREDIS_DIR}/lib NO_DEFAULT_PATH REQUIRED)
   target_link_libraries(
     triton-core
     PRIVATE

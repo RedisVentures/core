@@ -166,8 +166,8 @@ endif() # TRITON_ENABLE_GPU
 # Unit test for RedisResponseCache
 #
 #if(${TRITON_ENABLE_REDIS_CACHE})
-find_library(REDISPP NAMES redis++ PATHS ${REDISPP_DIR}/lib)
-find_library(HREDIS NAMES hiredis PATHS ${HIREDIS_DIR}/lib)
+find_library(REDISPP_LIBRARY NAMES redis++ PATHS ${REDISPP_DIR}/lib NO_DEFAULT_PATH REQUIRED)
+find_library(HIREDIS_LIBRARY NAMES hiredis PATHS ${HIREDIS_DIR}/lib NO_DEFAULT_PATH REQUIRED)
 
   add_executable(
     redis_response_cache_test
@@ -228,8 +228,8 @@ find_library(HREDIS NAMES hiredis PATHS ${HIREDIS_DIR}/lib)
       GTest::gtest
       GTest::gtest_main
       protobuf::libprotobuf
-      ${HREDIS}
-      ${REDISPP}
+      ${HIREDIS_LIBRARY}
+      ${REDISPP_LIBRARY}
       ${CNMEM_LIBRARY}
       CUDA::cudart
   )

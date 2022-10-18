@@ -1189,7 +1189,7 @@ TRITONSERVER_ServerOptionsSetResponseCacheByteSize(
 
 TRITONAPI_DECLSPEC TRITONSERVER_Error*
 TRITONSERVER_ServerOptionsSetResponseCacheAddress(
-    TRITONSERVER_ServerOptions* options, char* address)
+    TRITONSERVER_ServerOptions* options, const char* address)
 {
   TritonServerOptions* loptions =
       reinterpret_cast<TritonServerOptions*>(options);
@@ -1202,7 +1202,7 @@ TRITONSERVER_ServerOptionsSetResponseCacheAddress(
 }
 TRITONAPI_DECLSPEC TRITONSERVER_Error*
 TRITONSERVER_ServerOptionsSetResponseCachePassword(
-    TRITONSERVER_ServerOptions* options, char* password)
+    TRITONSERVER_ServerOptions* options, const char* password)
 {
   TritonServerOptions* loptions =
       reinterpret_cast<TritonServerOptions*>(options);
@@ -1216,7 +1216,7 @@ TRITONSERVER_ServerOptionsSetResponseCachePassword(
 
 TRITONAPI_DECLSPEC TRITONSERVER_Error*
 TRITONSERVER_ServerOptionsSetResponseCacheUsername(
-    TRITONSERVER_ServerOptions* options, char* username)
+    TRITONSERVER_ServerOptions* options, const char* username)
 {
   TritonServerOptions* loptions =
       reinterpret_cast<TritonServerOptions*>(options);
