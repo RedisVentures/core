@@ -38,7 +38,7 @@
 #include "model_config.pb.h"
 #include "model_repository_manager.h"
 #include "rate_limiter.h"
-#include "response_cache.h"
+#include "redis_cache.h"
 #include "status.h"
 #include "triton/common/model_config.h"
 
@@ -202,11 +202,33 @@ class InferenceServer {
 
   bool ResponseCacheEnabled() const { return response_cache_enabled_; }
 
+  // Get / set the response cache byte size.
+  std::string ResponseCacheAddress() const { return response_cache_address_; }
+  void SetResponseCacheAddress(std::string addr)
+  {
+    response_cache_address_ = addr;
+    response_cache_enabled_ = true;
+  }
+
+  std::string ResponseCacheUsername() const { return response_cache_username_; }
+  void SetResponseCacheUsername(std::string username)
+  {
+    response_cache_username_ = username;
+  }
+
+  std::string ResponseCachePassword() const { return response_cache_password_; }
+  void SetResponseCachePassword(std::string password)
+  {
+    response_cache_password_ = password;
+  }
+
   // Get / set CUDA memory pool size
   const std::map<int, uint64_t>& CudaMemoryPoolByteSize() const
   {
     return cuda_memory_pool_size_;
   }
+
+
 
   void SetCudaMemoryPoolByteSize(const std::map<int, uint64_t>& s)
   {
@@ -297,8 +319,16 @@ class InferenceServer {
   uint32_t buffer_manager_thread_count_;
   uint32_t model_load_thread_count_;
   uint64_t pinned_memory_pool_size_;
+
+  // response cache settings
   uint64_t response_cache_byte_size_;
   bool response_cache_enabled_;
+
+  // redis response cache settings
+  std::string response_cache_address_ = "";
+  std::string response_cache_username_ = "default";
+  std::string response_cache_password_ = "";
+
   std::map<int, uint64_t> cuda_memory_pool_size_;
   double min_supported_compute_capability_;
   triton::common::BackendCmdlineConfigMap backend_cmdline_config_map_;

@@ -362,6 +362,18 @@ TRITONSERVER_ServerOptionsSetResponseCacheByteSize()
 {
 }
 TRITONAPI_DECLSPEC void
+TRITONSERVER_ServerOptionsSetResponseCacheAddress()
+{
+}
+TRITONAPI_DECLSPEC void
+TRITONSERVER_ServerOptionsSetResponseCachePassword()
+{
+}
+TRITONAPI_DECLSPEC void
+TRITONSERVER_ServerOptionsSetResponseCacheUsername()
+{
+}
+TRITONAPI_DECLSPEC void
 TRITONSERVER_ServerOptionsSetMinSupportedComputeCapability()
 {
 }

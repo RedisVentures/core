@@ -83,12 +83,14 @@ set(
 )
 
 #
-# Unit test for RequestResponseCache
+# Unit test for LocalResponseCache
 #
 if(${TRITON_ENABLE_GPU})
   add_executable(
     response_cache_test
     response_cache_test.cc
+    ../local_response_cache.cc
+    ../local_response_cache.h
     ../response_cache.cc
     ../response_cache.h
     ../status.cc
@@ -114,6 +116,7 @@ if(${TRITON_ENABLE_GPU})
   target_include_directories(
     response_cache_test
     PRIVATE
+      /usr/local/lib
       ${CMAKE_CURRENT_SOURCE_DIR}/..
       ${CMAKE_CURRENT_SOURCE_DIR}/../../include
       ${GTEST_INCLUDE_DIRS}
@@ -136,6 +139,7 @@ if(${TRITON_ENABLE_GPU})
       triton-common-error        # from repo-common
       triton-common-logging      # from repo-common
       proto-library              # from repo-common
+      triton-common-model-config
       GTest::gtest
       GTest::gtest_main
       protobuf::libprotobuf
@@ -157,6 +161,93 @@ if(${TRITON_ENABLE_GPU})
     RUNTIME DESTINATION bin
   )
 endif() # TRITON_ENABLE_GPU
+
+#
+# Unit test for RedisResponseCache
+#
+#if(${TRITON_ENABLE_REDIS_CACHE})
+find_library(REDISPP_LIBRARY NAMES redis++ PATHS ${REDISPP_DIR}/lib NO_DEFAULT_PATH REQUIRED)
+find_library(HIREDIS_LIBRARY NAMES hiredis PATHS ${HIREDIS_DIR}/lib NO_DEFAULT_PATH REQUIRED)
+
+  add_executable(
+    redis_response_cache_test
+    redis_response_cache_test.cc
+    ../redis_cache.cc
+    ../redis_cache.h
+    ../response_cache.cc
+    ../response_cache.h
+    ../status.cc
+    ../status.h
+    ../constants.h
+    ${MEMORY_SRCS}
+    ${CUDA_MEMORY_MANAGER_SRCS}
+    ${PINNED_MEMORY_MANAGER_SRCS}
+    ${MEMORY_HDRS}
+    ${CUDA_MEMORY_MANAGER_HDRS}
+    ${PINNED_MEMORY_MANAGER_HDRS}
+  )
+
+  set_target_properties(
+    redis_response_cache_test
+    PROPERTIES
+      SKIP_BUILD_RPATH TRUE
+      BUILD_WITH_INSTALL_RPATH TRUE
+      INSTALL_RPATH_USE_LINK_PATH FALSE
+      INSTALL_RPATH ""
+  )
+
+  target_include_directories(
+    redis_response_cache_test
+    PRIVATE
+      /usr/local/lib
+      ${CMAKE_CURRENT_SOURCE_DIR}/..
+      ${CMAKE_CURRENT_SOURCE_DIR}/../../include
+      ${GTEST_INCLUDE_DIRS}
+      ${CNMEM_PATH}/include
+      ${HIREDIS_DIR}/include
+      ${REDISPP_DIR}/include
+  )
+
+  target_compile_definitions(
+    redis_response_cache_test
+    PRIVATE
+      TRITON_ENABLE_LOGGING=1
+      TRITON_ENABLE_GPU=1
+      TRITON_MIN_COMPUTE_CAPABILITY=${TRITON_MIN_COMPUTE_CAPABILITY}
+  )
+
+  find_library(CNMEM_LIBRARY NAMES cnmem PATHS ${CNMEM_PATH}/lib)
+
+  target_link_libraries(
+    redis_response_cache_test
+    PRIVATE
+      triton-common-error        # from repo-common
+      triton-common-logging      # from repo-common
+      proto-library              # from repo-common
+      triton-common-model-config
+      GTest::gtest
+      GTest::gtest_main
+      protobuf::libprotobuf
+      ${HIREDIS_LIBRARY}
+      ${REDISPP_LIBRARY}
+      ${CNMEM_LIBRARY}
+      CUDA::cudart
+  )
+
+  if (NOT WIN32)
+    target_link_libraries(
+      redis_response_cache_test
+      PRIVATE
+        dl
+        numa
+    )
+  endif()
+
+  install(
+    TARGETS redis_response_cache_test
+    RUNTIME DESTINATION bin
+  )
+#endif() # TRITON_ENABLE_REDIS_CACHE
 
 #
 # Unit test for Query
@@ -460,7 +551,7 @@ if(${TRITON_ENABLE_METRICS})
   )
 
   target_compile_definitions(
-    metrics_api_test 
+    metrics_api_test
     PRIVATE
       TRITON_ENABLE_LOGGING=1
       TRITON_ENABLE_METRICS=1

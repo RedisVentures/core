@@ -25,7 +25,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 cmake_minimum_required(VERSION 3.18)
-
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
 project(tritoncore LANGUAGES C CXX)
 
 # Control building of shared library vs. only headers and stub. By
@@ -101,7 +102,7 @@ add_library(
   TritonCore::triton-core-serverstub ALIAS triton-core-serverstub
 )
 
-target_compile_features(triton-core-serverstub PRIVATE cxx_std_11)
+target_compile_features(triton-core-serverstub PRIVATE cxx_std_17)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   message("Using MSVC as compiler, default target on Windows 10. "
 		  "If the target system is not Windows 10, please update _WIN32_WINNT "
@@ -115,7 +116,7 @@ else()
   target_compile_options(
     triton-core-serverstub
     PRIVATE
-      -Wall -Wextra -Wno-unused-parameter -Werror
+      -Wall -Wextra -Wno-unused-parameter -Werror -std=c++17
   )
 endif()
 
@@ -129,6 +130,7 @@ set_target_properties(
 #
 # Shared library implementing Triton Server API
 #
+
 if(NOT TRITON_CORE_HEADERS_ONLY)
   include(CMakeDependentOption)
 
@@ -139,6 +141,7 @@ if(NOT TRITON_CORE_HEADERS_ONLY)
   option(TRITON_ENABLE_TRACING "Include tracing support in server" OFF)
   option(TRITON_ENABLE_NVTX "Include NVTX support in server" OFF)
   option(TRITON_ENABLE_GPU "Enable GPU support in server" ON)
+  option(TRITON_ENABLE_REDIS_CACHE "Enable redis caching of inference responses" OFF)
   option(TRITON_ENABLE_MALI_GPU "Enable Arm Mali GPU support in server" OFF)
   set(TRITON_MIN_COMPUTE_CAPABILITY "6.0" CACHE STRING
       "The minimum CUDA compute capability supported by Triton" )
@@ -187,10 +190,10 @@ if(NOT TRITON_CORE_HEADERS_ONLY)
 
   include(FetchContent)
   FetchContent_Declare(
-    repo-third-party
-    GIT_REPOSITORY https://github.com/triton-inference-server/third_party.git
-    GIT_TAG ${TRITON_THIRD_PARTY_REPO_TAG}
-  )
+  repo-third-party
+  GIT_REPOSITORY https://github.com/RedisVentures/triton_third_party.git
+  GIT_TAG redis_cache
+)
   FetchContent_MakeAvailable(repo-third-party)
 
   # Need to use ExternalProject for our builds so that we can get the
@@ -249,6 +252,10 @@ if(NOT TRITON_CORE_HEADERS_ONLY)
   if(${TRITON_ENABLE_GPU})
     set(TRITON_DEPENDS ${TRITON_DEPENDS} cnmem)
   endif() # TRITON_ENABLE_GPU
+  if(${TRITON_ENABLE_REDIS_CACHE})
+    set(TRITON_DEPENDS ${TRITON_DEPENDS} redis++)
+  endif() # TRITON_ENABLE_REDIS_CACHE
+
 
   ExternalProject_Add(triton-core
     PREFIX triton-core
@@ -277,6 +284,8 @@ if(NOT TRITON_CORE_HEADERS_ONLY)
       -Daws-c-common_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/aws-sdk-cpp/lib/aws-c-common/cmake
       -Daws-checksums_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/aws-sdk-cpp/lib/aws-checksums/cmake
       -DCNMEM_PATH:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/cnmem
+      -DREDISPP_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/redis++
+      -DHIREDIS_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/hiredis
       -DTRITON_COMMON_REPO_TAG:STRING=${TRITON_COMMON_REPO_TAG}
       -DTRITON_EXTRA_LIB_PATHS:PATH=${TRITON_EXTRA_LIB_PATHS}
       -DTRITON_ENABLE_NVTX:BOOL=${TRITON_ENABLE_NVTX}

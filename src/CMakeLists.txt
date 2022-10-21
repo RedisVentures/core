@@ -27,7 +27,8 @@
 cmake_minimum_required(VERSION 3.18)
 
 project(libtritonserver LANGUAGES C CXX)
-
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
@@ -96,6 +97,16 @@ if(${TRITON_ENABLE_S3})
   message(STATUS "Using aws-sdk-cpp ${AWSSDK_VERSION}")
 endif()
 
+#
+# redis
+#
+if(${TRITON_ENABLE_REDIS_CACHE})
+  find_library(REDISPP_LIBRARY NAMES redis++ PATHS ${REDISPP_DIR}/lib NO_DEFAULT_PATH REQUIRED)
+  message(STATUS "Using redispp ${REDISPP_LIBRARY_VERSION}")
+  find_library(HIREDIS_LIBRARY NAMES hiredis PATHS ${HIREDIS_DIR}/lib NO_DEFAULT_PATH REQUIRED)
+endif()
+
+
 configure_file(libtritonserver.ldscript libtritonserver.ldscript COPYONLY)
 
 set(
@@ -132,6 +143,7 @@ set(
   rate_limiter.cc
   repo_agent.cc
   response_cache.cc
+  local_response_cache.cc
   scheduler_utils.cc
   sequence_batch_scheduler.cc
   sequence_state.cc
@@ -177,6 +189,7 @@ set(
   repo_agent.h
   response_allocator.h
   response_cache.h
+  local_response_cache.h
   scheduler.h
   scheduler_utils.h
   sequence_batch_scheduler.h
@@ -203,6 +216,20 @@ if(${TRITON_ENABLE_GPU})
   )
 endif() # TRITON_ENABLE_GPU
 
+if(${TRITON_ENABLE_REDIS_CACHE})
+  set(
+    SERVER_SRCS
+    ${SERVER_SRCS}
+    redis_cache.cc
+    redis.cc
+  )
+  set(
+    SERVER_HDRS
+    ${SERVER_HDRS}
+    redis_cache.h
+  )
+endif() # TRITON_ENABLE_GPU
+
 if(${TRITON_ENABLE_ENSEMBLE})
   set(
     SERVER_SRCS
@@ -225,7 +252,7 @@ add_library(
   TritonCore::triton-core ALIAS triton-core
 )
 
-target_compile_features(triton-core PRIVATE cxx_std_11)
+target_compile_features(triton-core PRIVATE cxx_std_17)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   message("Using MSVC as compiler, default target on Windows 10. "
 		  "If the target system is not Windows 10, please update _WIN32_WINNT "
@@ -239,7 +266,7 @@ else()
   target_compile_options(
     triton-core
     PRIVATE
-      -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Werror
+     -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Werror -fpermissive
   )
   set_target_properties(
     triton-core
@@ -493,6 +520,20 @@ if(${TRITON_ENABLE_GPU})
       CUDA::cudart
   )
 endif() # TRITON_ENABLE_GPU
+
+if(${TRITON_ENABLE_REDIS_CACHE})
+  find_library(REDISPP_LIBRARY NAMES redis++ PATHS ${REDISPP_DIR}/lib NO_DEFAULT_PATH REQUIRED)
+  find_library(HIREDIS_LIBRARY NAMES hiredis PATHS ${HIREDIS_DIR}/lib NO_DEFAULT_PATH REQUIRED)
+  target_link_libraries(
+    triton-core
+    PRIVATE
+      -lhiredis
+      -lredis++
+      ${HIREDIS_LIBRARY}
+      ${REDISPP_LIBRARY}
+  )
+endif() # TRITON_ENABLE_GPU
+
 
 if(${TRITON_ENABLE_METRICS_GPU})
   target_link_libraries(

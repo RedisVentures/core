@@ -44,6 +44,7 @@
 #include "model_repository_manager.h"
 #include "pinned_memory_manager.h"
 #include "repo_agent.h"
+#include "local_response_cache.h"
 #include "triton/common/async_work_queue.h"
 #include "triton/common/logging.h"
 #include "triton/common/model_config.h"
@@ -52,6 +53,10 @@
 #ifdef TRITON_ENABLE_GPU
 #include "cuda_memory_manager.h"
 #endif  // TRITON_ENABLE_GPU
+
+#ifdef TRITON_ENABLE_REDIS_CACHE
+#include "redis_cache.h"
+#endif // TRITON_ENABLE_REDIS_CACHE
 
 namespace triton { namespace core {
 
@@ -176,16 +181,40 @@ InferenceServer::Init()
     return status;
   }
 
+  if (response_cache_byte_size_ > 0 && response_cache_address_.length() > 0) {
+       return Status(
+        Status::Code::INVALID_ARG, "response cache byte size and address cannot both be supplied");
+  }
+
+
+  #ifdef TRITON_ENABLE_REDIS_CACHE
+  // if using Redis for the response cache
+  if (response_cache_address_.length() > 0) {
+
+    // init pointer to base class for derived classes
+    std::unique_ptr<RequestResponseCache> response_cache;
+    status = RedisResponseCache::Create(
+      response_cache_address_,
+      response_cache_username_,
+      response_cache_password_,
+        &response_cache);
+    response_cache_ = std::move(response_cache);
+  }
+  #endif // TRITON_ENABLE_REDIS_CACHE
+
   if (response_cache_byte_size_ > 0) {
-    std::unique_ptr<RequestResponseCache> local_response_cache;
-    status = RequestResponseCache::Create(
-        response_cache_byte_size_, &local_response_cache);
-    if (!status.IsOk()) {
-      ready_state_ = ServerReadyState::SERVER_FAILED_TO_INITIALIZE;
-      return status;
+    // init pointer to base class for derived classes
+    std::unique_ptr<RequestResponseCache> response_cache;
+
+    status = LocalResponseCache::Create(
+        response_cache_byte_size_, &response_cache);
+
+    response_cache_ = std::move(response_cache);
     }
 
-    response_cache_ = std::move(local_response_cache);
+  if (!status.IsOk()) {
+    ready_state_ = ServerReadyState::SERVER_FAILED_TO_INITIALIZE;
+    return status;
   }
 
 
